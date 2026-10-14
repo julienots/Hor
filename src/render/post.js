@@ -17,13 +17,14 @@ export function createPost(renderer) {
       uVignette: { value: 1.0 },
       uRes: { value: new THREE.Vector2(1, 1) },
       uLooped: { value: 0 },
+      uRed: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: /* glsl */ `
       precision highp float;
       varying vec2 vUv;
       uniform sampler2D tDiffuse;
-      uniform float uTime, uCam, uStatic, uNight, uFlash, uDark, uAberr, uVignette, uLooped;
+      uniform float uTime, uCam, uStatic, uNight, uFlash, uDark, uAberr, uVignette, uLooped, uRed;
       uniform vec2 uRes;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       void main(){
@@ -63,6 +64,8 @@ export function createPost(renderer) {
         vec2 d = vUv - 0.5;
         col *= mix(1.0, smoothstep(0.85, 0.2, length(d * vec2(1.1, 1.0))), uVignette);
         col = mix(col, vec3(0.0), uDark);
+        // pulsation rouge (jumpscare)
+        col = mix(col, col * vec3(1.7, 0.25, 0.2) + vec3(0.12, 0.0, 0.0), clamp(uRed, 0.0, 1.0) * 0.75);
         col += vec3(uFlash);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>

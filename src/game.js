@@ -1,9 +1,15 @@
+import { Vector3 as THREE_V } from 'three';
 import { Simulation } from './sim/simulation.js';
 import { CAMERAS, ROOMS, camRoom } from './sim/map.js';
 import { NIGHT_MESSAGES, LORE, ENDINGS, FRAGMENTS } from './sim/story.js';
 import { captionFor } from './sim/captions.js';
 import { writeSave } from './save.js';
 import { nearArmoredDoor } from './render/walk.js';
+import { CONNECTIONS, ROOM_POS, wallPos, isXWall } from './render/layout.js';
+import { WALK_LINKS } from './sim/map.js';
+
+const KEYS = ['mc', 'mimi', 'roi', 'ruban', 'choeur'];
+const VOICE = { mc: 0.8, mimi: 1.6, roi: 0.55, ruban: 1.25, choeur: 0.9 };
 
 const $ = (id) => document.getElementById(id);
 const MAX_YAW = 1.2;
@@ -47,6 +53,9 @@ export class Game {
     this.lastCam = null;
     this.debugTimer = 0;
     this.walking = false;
+    this.presenceT = 3;
+    this.phantomT = 40 + Math.random() * 40;
+    this.lastSeen = {};
     this.keys = new Set();
     this.stick = { x: 0, y: 0, id: null };
     this.lookPtr = null;
@@ -249,6 +258,9 @@ export class Game {
     if (this.sim.player.room !== 'OFFICE') { this.toast("Retourne dans la cabine pour t'asseoir.", 1800); return; }
     const yaw = this.r.explore?.yaw ?? 0;
     this.walking = false;
+    this.presenceT = 3;
+    this.phantomT = 40 + Math.random() * 40;
+    this.lastSeen = {};
     this.sim.player.standing = false;
     this.sim.player.running = false;
     this.r.stopExplore();
@@ -417,7 +429,8 @@ export class Game {
       } else if (sim.office.camsOpen) this.r.setCamFeed(sim, sim.office.cam);
       else this.r.setOffice(sim);
     }
-    this.r.dark = sim.office.powerOut ? 0.55 : 0;
+    if (!this.r.jumpscare) this.r.dark = sim.office.powerOut ? 0.55 : 0;
+    if (!this.ended) this.updateDread(dt);
     this.r.update(dt, sim);
     this.updateHud();
   }
@@ -520,7 +533,11 @@ export class Game {
     this.r.post.uniforms.uCam.value = 0;
     this.r.dark = 0;
     this.r.startJumpscare(who);
-    this.a.scream(who);
+    // silence glaçant, un chuchotement… puis le cri
+    this.a.stopAmbience();
+    this.a.setChase(0);
+    this.a.play('whisper', { side: 'C', vol: 0.9, pitch: VOICE[who] });
+    setTimeout(() => this.a.scream(who), 380);
     if (this.save.settings.vibration && navigator.vibrate) navigator.vibrate([200, 80, 400]);
     this.save.deaths++;
     writeSave(this.save);
@@ -533,11 +550,88 @@ export class Game {
       $('go-who').textContent = `${lore.name} t'a attrapé à ${$('hud-clock').textContent}.`;
       $('go-tip').textContent = (this.sim.office.power <= 0 ? "Tu as manqué d'énergie : à 0 %, plus rien ne te protège. " : '') + 'Règle : ' + lore.rule;
       $('gameover').classList.add('active');
-    }, 1500);
+    }, 1900);
+  }
+
+  // ---------------- Effroi : présence, sursauts, traque, fantômes ----------------
+  updateDread(dt) {
+    const sim = this.sim, r = this.r, p = sim.player;
+    // Respiration mécanique des mascottes proches, localisable à l'oreille
+    this.presenceT -= dt;
+    if (this.presenceT <= 0) {
+      this.presenceT = 2.5 + Math.random() * 2.5;
+      const near = this.walking ? [p.room, ...(WALK_LINKS[p.room] ?? [])] : ['DOOR_W', 'DOOR_E', 'VENT_MOUTH'];
+      const cands = KEYS.filter((k) => sim.enemies[k].active && near.includes(sim.enemies[k].room) && r.chars[k].root.visible);
+      if (cands.length) {
+        const k = cands[Math.floor(Math.random() * cands.length)];
+        const w = r.chars[k].root.getWorldPosition(r.chars[k].root.position.clone());
+        let side, vol;
+        if (this.walking) {
+          const e = r.explore, dx = w.x - e.x, dz = w.z - e.z, d = Math.hypot(dx, dz) || 1;
+          side = (dx * Math.cos(e.yaw) - dz * Math.sin(e.yaw)) / d;
+          vol = Math.max(0, 1.1 - d / 14);
+        } else {
+          const room = sim.enemies[k].room;
+          side = room === 'DOOR_W' ? 'W' : room === 'DOOR_E' ? 'E' : 'C';
+          vol = 0.45;
+        }
+        if (vol > 0.05) this.a.play('breath', { side, vol, pitch: VOICE[k] });
+      }
+    }
+    // Sursaut : première fois qu'on aperçoit une mascotte depuis un moment
+    if (this.walking && p.looking) {
+      if (sim.time - (this.lastSeen[p.looking] ?? -99) > 12) { this.a.play('sting', { side: 'C', vol: 0.8 }); r.shake = Math.max(r.shake, 0.5); }
+      this.lastSeen[p.looking] = sim.time;
+    }
+    // Bourdon de traque
+    let chase = 0;
+    for (const k of KEYS) {
+      const en = sim.enemies[k];
+      if (en.state !== 'hunt') continue;
+      chase = Math.max(chase, en.room === p.room ? 1 : (WALK_LINKS[p.room] ?? []).includes(en.room) ? 0.6 : 0.3);
+    }
+    if (this.walking) chase = Math.max(chase, Math.min(1, p.detection * 1.2));
+    this.a.setChase(chase);
+    // Fantômes (hallucinations) : jamais une vraie menace, mais on ne peut pas le savoir sans vérifier
+    if (r.phantom?.side && (r.phantom.side === 'W' ? sim.office.lightW : sim.office.lightE)) r.clearPhantom();
+    this.phantomT -= dt;
+    if (this.phantomT > 0 || r.phantom || sim.office.powerOut) return;
+    this.phantomT = (this.walking ? 35 : 60) + Math.random() * 50;
+    const key = KEYS[Math.floor(Math.random() * KEYS.length)];
+    if (this.walking) {
+      if (sim.enemiesWithPlayer().length || p.detection > 0.2) return;
+      const opts = [];
+      for (const [a, wa, b, wb, at] of CONNECTIONS) {
+        for (const [from, nb, wnb] of [[a, b, wb], [b, a, wa]]) {
+          if (from !== p.room || nb === 'OFFICE') continue;
+          const pb = wallPos(nb, wnb);
+          const x = isXWall(wnb);
+          const sgn = Math.sign((x ? ROOM_POS[nb][0] : ROOM_POS[nb][1]) - pb) || 1;
+          opts.push(x ? [pb + sgn * 1.4, at] : [at, pb + sgn * 1.4]);
+        }
+      }
+      if (!opts.length) return;
+      const [x, z] = opts[Math.floor(Math.random() * opts.length)];
+      const e = r.explore;
+      r.spawnPhantom(key, new THREE_V(x, 0, z), Math.atan2(e.x - x, e.z - z), { dur: 2.2, vanishOnLook: true });
+      this.a.play('whisper', { side: 'far', vol: 0.5, pitch: VOICE[key] });
+    } else if (this.night >= 2 && !sim.office.camsOpen) {
+      const o = sim.office;
+      const sides = ['W', 'E'].filter((s) => !(s === 'W' ? o.doorW || o.lightW : o.doorE || o.lightE)
+        && !KEYS.some((k) => ['DOOR_' + s, 'HALL_' + s].includes(sim.enemies[k].room)));
+      if (!sides.length) return;
+      const side = sides[Math.floor(Math.random() * sides.length)];
+      const spot = r.officeDoorSpot(side);
+      r.spawnPhantom(key, spot.pos, spot.ry, { dur: 3.5, vanishOnLook: false });
+      r.phantom.side = side;
+      this.a.play('whisper', { side, vol: 0.35, pitch: VOICE[key] });
+    }
   }
 
   onWin() {
     this.ended = true;
+    this.a.setChase(0);
+    this.r.clearPhantom(false);
     this.setCams(false);
     $('tape').classList.remove('show');
     const n = this.night;
@@ -558,6 +652,8 @@ export class Game {
   }
 
   destroy() {
+    this.r.clearPhantom(false);
+    this.a.setChase(0);
     $('walkui').classList.remove('active');
     $('hud').classList.remove('walking');
     $('danger').style.opacity = 0;

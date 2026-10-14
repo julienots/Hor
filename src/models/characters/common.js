@@ -73,23 +73,59 @@ export function curlFingers(phal, v) {
 }
 
 /** Œil mécanique : globe, iris émissif, paupière. */
-export function mechEye(parent, { r = 0.05, x = 0, y = 0, z = 0, irisColor = '#ff2a1a', white = '#efe6cf', lidMat }) {
+// Halo lumineux des yeux (visible dans le noir), texture partagée.
+let haloTex = null;
+function getHaloTex() {
+  if (haloTex) return haloTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.18, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.12)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  haloTex = new THREE.CanvasTexture(c);
+  return haloTex;
+}
+
+const oilMat = new THREE.MeshStandardMaterial({ color: '#050203', roughness: 0.08, metalness: 0.3 });
+
+/** Œil mécanique : globe, iris émissif à pupille en tête d'épingle, halo, paupière, coulures d'huile. */
+export function mechEye(parent, { r = 0.05, x = 0, y = 0, z = 0, irisColor = '#ff2a1a', white = '#efe6cf', lidMat, drip = true }) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
   parent.add(g);
   const ball = mesh(new THREE.SphereGeometry(r, 18, 12), new THREE.MeshStandardMaterial({ color: white, roughness: 0.25 }));
   g.add(ball);
   const irisMat = new THREE.MeshStandardMaterial({ color: '#111', emissive: new THREE.Color(irisColor), emissiveIntensity: 1.5, roughness: 0.2 });
+  irisMat.userData.iris = true;
+  irisMat.userData.baseColor = new THREE.Color(irisColor);
   const iris = mesh(new THREE.CircleGeometry(r * 0.42, 16), irisMat, { z: r * 0.995 });
   g.add(iris);
-  const pupil = mesh(new THREE.CircleGeometry(r * 0.16, 12), new THREE.MeshBasicMaterial({ color: '#000' }), { z: r * 1.0 });
+  // pupille minuscule : regard fixe et vide
+  const pupil = mesh(new THREE.CircleGeometry(r * 0.08, 10), new THREE.MeshBasicMaterial({ color: '#000' }), { z: r * 1.0 });
   g.add(pupil);
+  // halo additif : les yeux brillent dans l'obscurité
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: getHaloTex(), color: irisColor, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.6 }));
+  halo.scale.setScalar(r * 7);
+  halo.position.z = r * 1.2;
+  halo.userData.halo = true;
+  halo.userData.iris = irisMat;
+  halo.castShadow = false;
+  g.add(halo);
   let lid = null;
   if (lidMat) {
     lid = mesh(new THREE.SphereGeometry(r * 1.08, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), lidMat, { rx: -0.5 });
     g.add(lid);
   }
-  return { g, irisMat, lid };
+  // coulures d'huile noire sous l'œil, comme des larmes
+  if (drip) {
+    for (const [dx, len] of [[-0.25, 2.4], [0.2, 1.5]]) {
+      const d = mesh(new THREE.CapsuleGeometry(r * 0.11, r * len, 2, 6), oilMat, { x: r * dx, y: -r * (0.9 + len / 2), z: r * 0.92 });
+      g.add(d);
+    }
+  }
+  return { g, irisMat, lid, halo };
 }
 
 /** Rangée de dents (blocs légèrement irréguliers). */

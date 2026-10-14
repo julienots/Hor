@@ -64,7 +64,7 @@ de toutes les salles (captures vérifiées), aucune erreur JavaScript.
 ### 3 ter. APK Android
 
 - `android/build-apk.sh` : réussi. `apksigner verify` : signature valide. `aapt dump badging` :
-  paquet `com.superessence.nightshift`, version 0.3.0, Android 7.0+ (API 24), cible API 34.
+  paquet `com.superessence.nightshift`, version 0.4.0, Android 7.0+ (API 24), cible API 34.
 - Le fichier HTML embarqué dans l'APK a passé les deux tests navigateur (15/15 et 10/10) chargé en
   `file://`, comme dans la WebView.
 - **Non testé : installation et lancement sur un vrai téléphone ou un émulateur** (pas d'émulateur
@@ -74,6 +74,12 @@ de toutes les salles (captures vérifiées), aucune erreur JavaScript.
 
 - `npm run build` : réussi (dist/, JS ≈ 150 Ko gzip pour le moteur + 35 Ko pour le jeu).
 - `npm run build:single` : réussi (dist-single/index.html, 684 Ko, 190 Ko gzip).
+
+### 5. Effroi (v0.4.0)
+
+Captures vérifiées : yeux lumineux dans l'obscurité, yeux rouges en traque, jumpscare figé puis
+élan avec pulsation rouge, fantôme aux yeux rouges dans le noir de la porte ouest. Les fantômes
+n'existent que dans le rendu : la simulation n'est pas modifiée (21/21, 15/15 et 13/13 toujours au vert).
 
 ## Non testé / à faire sur appareil réel
 

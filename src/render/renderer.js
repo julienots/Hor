@@ -7,6 +7,8 @@ import { addWalkData, moveIn, roomAt } from './walk.js';
 import { WALK_LINKS } from '../sim/map.js';
 
 const ENEMIES = ['mc', 'mimi', 'roi', 'ruban', 'choeur'];
+const RED = new THREE.Color('#ff1010');
+const TMP_A = new THREE.Vector3(), TMP_B = new THREE.Vector3(), TMP_C = new THREE.Vector3();
 const QUALITY = {
   low: { pixel: 0.6, shadows: false, shadowSize: 512 },
   medium: { pixel: 0.85, shadows: true, shadowSize: 1024 },
@@ -54,7 +56,10 @@ export class GameRenderer {
     this.post = createPost(this.renderer);
     // Mascottes
     this.chars = {};
-    for (const k of ENEMIES) { this.chars[k] = buildCharacter(k); this.chars[k].root.visible = false; this.scene.add(this.chars[k].root); }
+    for (const k of ENEMIES) { this.chars[k] = this.prepChar(buildCharacter(k)); this.chars[k].root.visible = false; this.scene.add(this.chars[k].root); }
+    this.phantoms = {};
+    this.phantom = null;
+    this.red = 0;
     this.charRoom = {};
     // Fragment secret
     this.fragment = fragmentMesh();
@@ -192,7 +197,15 @@ export class GameRenderer {
     const t = this.time;
     const o = sim?.office;
     // Animation des mascottes visibles uniquement
-    for (const ch of Object.values(this.chars)) if (ch.root.visible && ch.root.parent?.visible !== false) ch.rig.update(dt);
+    for (const [k, ch] of Object.entries(this.chars)) {
+      if (!ch.root.visible || ch.root.parent?.visible === false) continue;
+      if (!(this.jumpscare?.ch === ch && this.jumpscare.t < this.jumpscare.hold)) ch.rig.update(dt);
+      const en = sim?.enemies[k];
+      const rage = this.jumpscare?.ch === ch || this.chasing?.has(k) || en?.state === 'hunt' || en?.state === 'atDoor' ? 1 : 0;
+      this.dressEyes(ch, rage, dt);
+      if (this.jumpscare?.ch !== ch) this.trackHead(ch, dt);
+    }
+    this.updatePhantom(dt);
     for (const u of this.view?.updaters ?? []) u(t, dt, o);
     // Scintillement des lumières
     const fl = this.view?.lights.flicker ?? 0;
@@ -230,6 +243,8 @@ export class GameRenderer {
     const U = this.post.uniforms;
     U.uTime.value = t;
     U.uFlash.value = this.settings.reduceFlash ? this.flash * 0.15 : this.flash;
+    this.red = Math.max(0, this.red - dt * 0.9);
+    U.uRed.value = (this.settings.reduceFlash ? 0.35 : 1) * this.red;
     U.uDark.value = this.dark;
     this.fragment.rotation.y += dt * 1.5;
     this.post.render(this.scene, this.activeCam());
@@ -295,8 +310,108 @@ export class GameRenderer {
     }
   }
 
-  /** Lancer le jumpscare : la mascotte surgit devant la caméra du joueur (cabine ou exploration). */
+  // ------------------------------------------------------------------
+  // PRÉSENCE DES MASCOTTES : yeux, regard, fantômes
+  // ------------------------------------------------------------------
+  prepChar(ch) {
+    ch.irises = []; ch.halos = [];
+    ch.root.traverse((o) => {
+      if (o.userData.halo) ch.halos.push(o);
+      const m = o.material;
+      if (m?.userData?.iris && !ch.irises.includes(m)) ch.irises.push(m);
+    });
+    ch.track = { y: 0, p: 0 };
+    ch.rage = 0;
+    return ch;
+  }
+
+  /** Les yeux virent au rouge quand la mascotte chasse ; le halo suit l'éclat de l'iris. */
+  dressEyes(ch, rage, dt) {
+    ch.rage += (rage - ch.rage) * Math.min(1, dt * 3);
+    for (const m of ch.irises) {
+      m.emissive.copy(m.userData.baseColor).lerp(RED, ch.rage);
+      if (ch.rage > 0.5) m.emissiveIntensity = Math.max(m.emissiveIntensity, 2.6);
+    }
+    for (const h of ch.halos) {
+      h.material.color.copy(h.userData.iris.emissive);
+      h.material.opacity = Math.min(1, h.userData.iris.emissiveIntensity * 0.22) * (0.55 + ch.rage * 0.45);
+      h.scale.setScalar(h.userData.base ??= h.scale.x);
+      if (ch.rage > 0.5) h.scale.setScalar(h.userData.base * (1.3 + Math.random() * 0.15));
+    }
+  }
+
+  /** La tête suit la caméra du joueur ; parfois elle « claque » d'un coup vers lui. */
+  trackHead(ch, dt) {
+    const J = ch.rig.joints;
+    if (!J.head || ['crawl', 'ventpeek', 'sabotage', 'stunned'].includes(ch.rig.current)) { ch.track.y = ch.track.p = 0; return; }
+    const cam = this.activeCam();
+    const camPos = cam.getWorldPosition(TMP_A);
+    ch.root.updateMatrixWorld(true);
+    const local = ch.root.worldToLocal(camPos.clone());
+    const dist = local.length();
+    let ty = 0, tp = 0;
+    if (dist < 16) {
+      const headY = J.head.getWorldPosition(TMP_B).y - ch.root.getWorldPosition(TMP_C).y;
+      ty = THREE.MathUtils.clamp(Math.atan2(local.x, local.z), -1.15, 1.15);
+      tp = THREE.MathUtils.clamp(Math.atan2(local.y - headY, Math.hypot(local.x, local.z)), -0.5, 0.45);
+      if (Math.abs(Math.atan2(local.x, local.z)) > 2.2) ty = tp = 0; // derrière elle : pas de torsion impossible
+    }
+    if (Math.random() < dt * 0.35) { ch.track.y = ty; ch.track.p = tp; } // claquement
+    else { ch.track.y += (ty - ch.track.y) * Math.min(1, dt * 2.2); ch.track.p += (tp - ch.track.p) * Math.min(1, dt * 2.2); }
+    if (J.neck) J.neck.rotation.y += ch.track.y * 0.4;
+    J.head.rotation.y += ch.track.y * 0.6;
+    J.head.rotation.x -= ch.track.p * 0.7;
+  }
+
+  /**
+   * Fantôme : une silhouette de mascotte apparaît (encadrement de porte, fond de couloir)
+   * puis disparaît quand on la regarde ou qu'on l'éclaire. Sans effet sur la partie.
+   */
+  spawnPhantom(key, pos, ry, { dur = 1.6, vanishOnLook = true } = {}) {
+    if (!this.phantoms[key]) { this.phantoms[key] = this.prepChar(buildCharacter(key)); this.scene.add(this.phantoms[key].root); }
+    const ch = this.phantoms[key];
+    for (const p of Object.values(this.phantoms)) p.root.visible = false;
+    ch.root.position.copy(pos);
+    ch.root.rotation.set(0, ry, 0);
+    ch.root.visible = true;
+    ch.rig.play(key === 'mimi' ? 'peek' : 'observe', { fade: 0, restart: true });
+    ch.rig.update(0.5);
+    this.phantom = { ch, t: 0, dur, vanishOnLook, seen: 0 };
+  }
+
+  /** Emplacement monde devant une porte blindée (pour un fantôme dans le noir du couloir). */
+  officeDoorSpot(side) {
+    const spot = this.office.spots['DOOR_' + side];
+    const pos = new THREE.Vector3(...spot.p);
+    spot.parent.localToWorld(pos);
+    return { pos, ry: spot.ry };
+  }
+
+  clearPhantom(burst = true) {
+    if (!this.phantom) return;
+    this.phantom.ch.root.visible = false;
+    this.phantom = null;
+    if (burst) this.static = Math.max(this.static, 0.35);
+  }
+
+  updatePhantom(dt) {
+    const ph = this.phantom;
+    if (!ph) return;
+    ph.t += dt;
+    ph.ch.rig.update(dt);
+    this.dressEyes(ph.ch, 1, dt);
+    this.trackHead(ph.ch, dt);
+    if (ph.vanishOnLook) {
+      const cam = this.activeCam();
+      const dir = ph.ch.rig.joints.chest.getWorldPosition(TMP_A).sub(cam.getWorldPosition(TMP_B)).normalize();
+      if (cam.getWorldDirection(TMP_C).angleTo(dir) < 0.2) ph.seen += dt;
+    }
+    if (ph.t > ph.dur || (ph.seen > 0.15 && ph.t > 0.45)) this.clearPhantom();
+  }
+
+  /** Lancer le jumpscare : immobilité glaçante, puis la mascotte surgit devant la caméra. */
   startJumpscare(who) {
+    this.clearPhantom(false);
     if (!this.explore) this.setView('OFFICE');
     const parent = this.explore ? this.view.group : this.office.group;
     const ch = this.chars[who];
@@ -306,13 +421,13 @@ export class GameRenderer {
     ch.root.scale.setScalar(1);
     const yaw = this.explore ? this.explore.yaw : this.yaw;
     ch.root.rotation.set(0, yaw, 0);
-    ch.rig.play('jumpscare', { fade: 0.05, restart: true });
-    ch.rig.update(0.15);
+    // 1) elle apparaît, immobile, et fixe le joueur
+    ch.rig.play('observe', { fade: 0, restart: true });
+    ch.rig.update(1.5);
     const dist = { mc: 0.72, mimi: 0.55, roi: 1.25, ruban: 0.68, choeur: 1.15 }[who] ?? 0.8;
-    this.jumpscare = { who, t: 0, ch, dist, yaw, parent };
-    this.frameJumpscare(1);
-    this.shake = 1.5;
-    this.flash = 0.7;
+    this.jumpscare = { who, t: 0, ch, dist, yaw, parent, hold: 0.38, lunged: false };
+    this.frameJumpscare(0, true);
+    this.dark = 0.25;
   }
 
   camWorldPos() {
@@ -321,17 +436,17 @@ export class GameRenderer {
   }
 
   // Place la mascotte pour que sa tête soit juste devant l'objectif (cadrage robuste).
-  frameJumpscare(k) {
+  frameJumpscare(k, instant = false) {
     const j = this.jumpscare;
     const fwd = new THREE.Vector3(-Math.sin(j.yaw), 0, -Math.cos(j.yaw));
     j.ch.root.updateMatrixWorld(true);
     const head = j.ch.rig.joints.head.getWorldPosition(new THREE.Vector3());
     const rootW = j.ch.root.getWorldPosition(new THREE.Vector3());
     const offset = head.sub(rootW);
-    const d = j.dist + (1 - k) * 0.6;
+    const d = j.dist + (1 - k) * 1.6;
     const want = this.camWorldPos().addScaledVector(fwd, d).add(new THREE.Vector3(0, -0.12, 0)).sub(offset).sub(j.parent.position);
-    if (k >= 1 && j.t === 0) j.ch.root.position.copy(want);
-    else j.ch.root.position.lerp(want, 0.5);
+    if (instant) j.ch.root.position.copy(want);
+    else j.ch.root.position.lerp(want, 0.6);
     j.headY = offset.y;
   }
 
@@ -345,8 +460,21 @@ export class GameRenderer {
     } else {
       this.explore.pitch *= 0.8;
     }
-    this.frameJumpscare(Math.min(1, j.t / 0.25));
-    this.shake = Math.max(this.shake, 0.8);
+    if (j.t < j.hold) { this.frameJumpscare(0); return; }
+    // 2) l'élan : cri, tremblement, flash rouge
+    if (!j.lunged) {
+      j.lunged = true;
+      j.ch.rig.play('jumpscare', { fade: 0.03, restart: true });
+      this.dark = 0;
+      this.flash = 0.8;
+      this.red = 1;
+      this.shake = 2.2;
+    }
+    this.frameJumpscare(Math.min(1, (j.t - j.hold) / 0.11));
+    this.shake = Math.max(this.shake, 1.1);
+    if (Math.sin(j.t * 40) > 0.6) this.red = Math.max(this.red, 0.8);
+    // 3) coupure brutale vers la neige
+    if (j.t > j.hold + 1.0) this.static = 1;
   }
 
   endJumpscare() {
@@ -355,6 +483,8 @@ export class GameRenderer {
     this.jumpscare.ch.root.visible = false;
     this.charRoom[this.jumpscare.who] = null;
     this.jumpscare = null;
+    this.dark = 0;
+    this.red = 0;
   }
 
   /** Lance un rayon depuis l'écran ; renvoie le nom du bouton cliqué. */

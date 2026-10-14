@@ -10,7 +10,7 @@ On peut aussi **quitter la cabine et explorer le bâtiment à pied**, lampe torc
 
 ## Installer l'APK Android
 
-1. Télécharge [`releases/Nightshift-0.3.0.apk`](releases/Nightshift-0.3.0.apk) sur ton téléphone.
+1. Télécharge [`releases/Nightshift-0.4.0.apk`](releases/Nightshift-0.4.0.apk) sur ton téléphone.
 2. Ouvre-le ; Android demande d'autoriser l'installation depuis cette source (navigateur ou
    gestionnaire de fichiers) : accepte, puis « Installer ».
 3. Lance « Nightshift ». Le jeu fonctionne hors ligne et s'affiche en paysage.
@@ -118,6 +118,21 @@ Les fragments dorés peuvent aussi se ramasser à pied.
 
 À 0 % d'énergie, tout s'éteint et la mélodie de la Parade annonce le Roi des Rouages.
 Fiches complètes (histoire, silhouette, matériaux, rig, animations, sons, IA) : [`docs/ENNEMIS.md`](docs/ENNEMIS.md).
+
+## L'effroi
+
+- Les yeux des mascottes **brillent dans le noir**, avec une pupille en tête d'épingle et des
+  coulures d'huile noire ; ils **virent au rouge** quand une mascotte te traque ou attend à une porte.
+- Leur **tête suit ton regard** (caméras, portes, à pied) et **claque** parfois d'un coup vers toi.
+- **Respirations mécaniques** des mascottes proches, localisables à l'oreille ; **accord strident**
+  la première fois que tu en aperçois une ; **bourdon pulsé** quand l'une d'elles te traque.
+- **Jumpscare en deux temps** : la mascotte apparaît, immobile, te fixe en silence avec un
+  chuchotement… puis surgit avec un cri, un flash rouge et une coupure dans la neige.
+- **Hallucinations** : une silhouette aux yeux rouges dans le noir d'une porte de la cabine
+  (dès la nuit 2) ou dans l'ouverture d'une salle voisine. Elle disparaît quand tu l'éclaires ou la
+  fixes. Elle ne fait jamais de mal, et une vraie mascotte, elle, **reste dans la lumière** : la
+  vérification avec la lampe garde tout son sens.
+- Le réglage « Réduire les flashs lumineux » atténue aussi les pulsations rouges.
 
 ## Contenu
 

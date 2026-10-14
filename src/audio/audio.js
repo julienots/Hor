@@ -63,7 +63,7 @@ export class AudioEngine {
     g.gain.value = vol;
     let node = g;
     const pan = c.createStereoPanner();
-    pan.pan.value = side === 'W' ? -0.85 : side === 'E' ? 0.85 : 0;
+    pan.pan.value = typeof side === 'number' ? Math.max(-1, Math.min(1, side)) : side === 'W' ? -0.85 : side === 'E' ? 0.85 : 0;
     if (side === 'C') { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200; node.connect(lp); node = lp; }
     if (side === 'far') { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; node.connect(lp); node = lp; reverb = Math.max(reverb, 0.6); g.gain.value = vol * 0.6; }
     if (speaker) {
@@ -147,7 +147,7 @@ export class AudioEngine {
   }
 
   // ---------- recettes de sons ----------
-  play(id, { side = 'far', vol = 1, fake = false, speaker = false } = {}) {
+  play(id, { side = 'far', vol = 1, fake = false, speaker = false, pitch = 1 } = {}) {
     if (!this.ctx) return;
     const c = this.ctx, t = c.currentTime + 0.01;
     // Les imitations du Chœur : trois copies désaccordées, légèrement décalées
@@ -161,7 +161,7 @@ export class AudioEngine {
       return;
     }
     const dest = this.out(side, 'sfx', vol, { reverb: side === 'far' ? 0.6 : 0.25, speaker });
-    this.recipe(id, dest, t, 1);
+    this.recipe(id, dest, t, pitch);
   }
 
   recipe(id, d, t, p) {
@@ -266,6 +266,29 @@ export class AudioEngine {
       case 'fragment':
         this.melody(d, t, [79, 83, 86, 91], 0.09, { type: 'sine', gain: 0.15, p: 1, bell: true });
         break;
+      case 'whisper': {
+        // chuchotement : souffles filtrés en formants, syllabes inintelligibles
+        let tt = t;
+        for (let i = 0; i < 7; i++) {
+          const dur = 0.12 + Math.random() * 0.2;
+          this.noise(d, tt, dur, { type: 'bandpass', freq: (900 + Math.random() * 1600) * p, q: 6, gain: 0.25, attack: 0.04 });
+          this.noise(d, tt, dur, { type: 'bandpass', freq: 3200 * p, q: 3, gain: 0.08, attack: 0.04 });
+          tt += dur + Math.random() * 0.12;
+        }
+        break;
+      }
+      case 'sting':
+        // accord dissonant brutal + souffle métallique (découverte d'une mascotte)
+        for (const [i, n] of [36, 37, 42, 48, 49, 55].entries()) this.tone(d, t + i * 0.006, 1.6, { type: 'sawtooth', freq: NOTE(n), freqEnd: NOTE(n) * 0.97, gain: 0.09, attack: 0.01 });
+        this.noise(d, t, 0.9, { type: 'highpass', freq: 2500, freqEnd: 6000, gain: 0.25, attack: 0.01 });
+        this.thump(d, t, { freq: 45, gain: 1, dur: 0.9 });
+        break;
+      case 'breath':
+        // respiration mécanique : soufflet + servo
+        this.noise(d, t, 1.1, { type: 'bandpass', freq: 600 * p, freqEnd: 300 * p, q: 2, gain: 0.3, attack: 0.4 });
+        this.noise(d, t + 1.2, 0.9, { type: 'bandpass', freq: 350 * p, freqEnd: 700 * p, q: 2, gain: 0.22, attack: 0.3 });
+        this.tone(d, t + 0.2, 0.8, { type: 'sawtooth', freq: 80 * p, freqEnd: 120 * p, gain: 0.03, vibrato: 8, vibRate: 13 });
+        break;
       case 'step':
         this.noise(d, t, 0.09, { type: 'lowpass', freq: 500 * p, gain: 0.35 });
         this.noise(d, t, 0.05, { type: 'bandpass', freq: 2200, q: 3, gain: 0.05 });
@@ -308,6 +331,32 @@ export class AudioEngine {
     this.noise(g, t, 1.6, { freq: 1800, freqEnd: 3000, q: 0.8, gain: 0.9 });
     this.noise(g, t, 0.5, { type: 'lowpass', freq: 200, gain: 1 });
     if (who === 'roi') this.tone(g, t, 1.6, { type: 'square', freq: 45, freqEnd: 30, gain: 0.5 });
+    // crissement de métal qui monte + coup de grosse caisse
+    this.tone(g, t, 1.4, { type: 'sawtooth', freq: 1800, freqEnd: 4200, gain: 0.12, vibrato: 120, vibRate: 31 });
+    this.thump(this.bus.scare, t, { freq: 38, gain: 1.4, dur: 1.2 });
+  }
+
+  /** Bourdon de traque (pulsation grave) ; intensité 0 à 1. */
+  setChase(level) {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    if (!this.loops.chase) {
+      const g = c.createGain(); g.gain.value = 0;
+      const pulse = c.createGain(); pulse.gain.value = 0.5;
+      const lfo = c.createOscillator(); lfo.frequency.value = 2.2;
+      const lg = c.createGain(); lg.gain.value = 0.5;
+      lfo.connect(lg).connect(pulse.gain);
+      for (const [f, ty] of [[41, 'sawtooth'], [41.7, 'sawtooth'], [61.5, 'triangle']]) {
+        const o = c.createOscillator(); o.type = ty; o.frequency.value = f;
+        const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220;
+        o.connect(lp).connect(pulse); o.start();
+      }
+      pulse.connect(g).connect(this.bus.music);
+      lfo.start();
+      this.loops.chase = { g, lfo };
+    }
+    this.loops.chase.g.gain.setTargetAtTime(level * 0.35, c.currentTime, 0.4);
+    this.loops.chase.lfo.frequency.setTargetAtTime(1.6 + level * 2.4, c.currentTime, 0.4);
   }
 
   // ---------- boucles d'ambiance ----------

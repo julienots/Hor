@@ -71,6 +71,13 @@ export class Rig {
 const S = Math.sin, C = Math.cos;
 // Petit tremblement mécanique (servo usé) déterministe.
 export const twitch = (t, f = 1, a = 1) => (S(t * 13.1 * f) * S(t * 3.7 * f + 1.3) > 0.82 ? S(t * 47) * 0.05 * a : 0);
+// Claquement de tête : rare, brutal, puis immobile (effet « servo qui saute »).
+export const snap = (t) => {
+  const k = Math.floor(t / 2.7);
+  const ph = t - k * 2.7;
+  const dir = Math.sin(k * 91.7) > 0.3 ? Math.sign(Math.sin(k * 13.1)) : 0;
+  return ph < 0.06 ? dir * (ph / 0.06) * 0.55 : ph < 1.2 ? dir * 0.55 : ph < 1.3 ? dir * 0.55 * (1 - (ph - 1.2) / 0.1) : 0;
+};
 
 /**
  * Bibliothèque de clips humanoïdes génériques ; chaque personnage
@@ -83,7 +90,7 @@ export function humanoidClips({ knee = 1, stride = 0.45, sway = 0.06, heavy = 0,
       R.r('spine', b * 0.015, 0, 0);
       R.r('chest', b * 0.02, S(t * 0.4) * 0.03, 0);
       R.r('neck', 0, S(t * 0.3) * 0.08, twitch(t, 1, 2));
-      R.r('head', S(t * 0.7) * 0.03 + twitch(t, 0.7, 3), 0, S(t * 0.21) * 0.06);
+      R.r('head', S(t * 0.7) * 0.03 + twitch(t, 0.7, 3), snap(t) * 0.6, S(t * 0.21) * 0.06 + snap(t + 1.3) * 0.5);
       R.r('shoulderL', 0, 0, 0.05 + b * 0.02); R.r('shoulderR', 0, 0, -0.05 - b * 0.02);
       R.r('elbowL', -0.15, 0, 0); R.r('elbowR', -0.15 + twitch(t, 1.3, 2), 0, 0);
       R.p('hips', 0, b * 0.006, 0);
