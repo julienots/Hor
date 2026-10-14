@@ -1,4 +1,4 @@
-import { ROOMS, shortestPath } from './map.js';
+import { ROOMS, shortestPath, HUNT_LINKS } from './map.js';
 
 // Base commune : chaque ennemi est une petite machine à états testable.
 // États : inactive, roam, atDoor, retreat, stunned, sabotage, attack.
@@ -38,6 +38,7 @@ export class Enemy {
       return;
     }
     if (this.state === 'inactive') this.state = 'roam';
+    if (this.state === 'hunt') { this.updateHunt(dt); return; }
     this.timer = Math.max(0, this.timer - dt);
     this.tickTimer -= dt;
     if (this.tickTimer <= 0) {
@@ -50,6 +51,38 @@ export class Enemy {
   onTick() {}
   onUpdate() {}
 
+  // Traque : le joueur a quitté la cabine. La mascotte suit ses traces de salle en salle.
+  startHunt() {
+    this.state = 'hunt';
+    this.huntTimer = 30;
+    this.huntStep = 2.5;
+    this.pose = 'walk';
+    this.note = 'traque le joueur';
+  }
+
+  updateHunt(dt) {
+    const p = this.sim.player;
+    this.huntTimer -= dt;
+    if (p.room === 'OFFICE' || this.huntTimer <= 0) { this.endHunt(); return; }
+    this.huntStep -= dt;
+    if (this.huntStep > 0 || this.room === p.room) return;
+    this.huntStep = Math.max(2.2, 4.5 - this.level * 0.1);
+    const path = shortestPath(this.room, p.room, [], HUNT_LINKS);
+    if (path && path.length > 1) {
+      this.moveTo(path[1], 'traque');
+      this.onHuntMove?.();
+      this.sim.sound(this.key === 'mimi' ? 'mimi_scrape_far' : this.key === 'ruban' ? 'ruban_rustle' : this.key === 'choeur' ? 'choeur_hum' : this.key === 'roi' ? 'roi_step' : 'mc_step', { side: 'far', vol: 0.5 });
+    }
+  }
+
+  endHunt() {
+    this.state = 'roam';
+    this.pose = 'idle';
+    this.timer = 0;
+    this.resetToStart?.() ?? this.moveTo(this.start, 'abandonne la traque');
+    this.tickTimer = this.tickInterval * 2;
+  }
+
   debug() {
     return { who: this.key, room: this.room, state: this.state, level: this.level, timer: +this.timer.toFixed(1), note: this.note };
   }
@@ -61,7 +94,10 @@ export class MasterOfCeremonies extends Enemy {
     super(sim, 'mc', { name: 'Le Maître de Cérémonie', tick: 4.8, start: 'STAGE' });
     this.route = ['STAGE', 'PARTY', 'HALL_W', 'DOOR_W'];
   }
-  watched() { return this.sim.isWatching(this.room); }
+  watched() {
+    const p = this.sim.player;
+    return this.sim.isWatching(this.room) || (p.room === this.room && p.flashlight && p.looking === 'mc');
+  }
   onTick() {
     if (this.state === 'atDoor') return;
     if (this.watched()) { this.note = 'observé : figé'; this.pose = 'frozen'; return; }
@@ -93,7 +129,7 @@ export class MasterOfCeremonies extends Enemy {
       this.moveTo('PARTY', 'repoussé par la porte');
       this.sim.sound('mc_retreat', { side: 'W' });
     } else {
-      this.sim.kill(this.key);
+      this.sim.attack(this);
     }
   }
 }
@@ -136,9 +172,11 @@ export class Mimi extends Enemy {
       this.setDepth(0, 'repoussée par le volet');
       this.sim.sound('mimi_retreat', { side: 'C' });
     } else {
-      this.sim.kill(this.key);
+      this.sim.attack(this);
     }
   }
+  onHuntMove() { this.depth = this.room === 'VENT' ? 1 : this.room === 'VENT_MOUTH' ? 3 : 0; }
+  resetToStart() { this.setDepth(0, 'abandonne la traque'); }
   onLure(room) {
     if (room === 'WORKSHOP' && (this.depth === 1 || this.depth === 2)) {
       this.setDepth(0, 'attirée par le leurre');
@@ -239,7 +277,7 @@ export class MadameRuban extends Enemy {
       }
     }
     if (this.sim.rng.chance(0.005)) this.sim.sound('ruban_door', { side: 'E', vol: 0.4 });
-    if (this.timer <= 0) this.sim.kill(this.key);
+    if (this.timer <= 0) this.sim.attack(this);
   }
 }
 
@@ -304,7 +342,7 @@ export class Choir extends Enemy {
       this.moveTo('PARTY', 'repoussé par la porte');
       this.sim.sound('choeur_retreat', { side: side === 'doorW' ? 'W' : 'E' });
     } else {
-      this.sim.kill(this.key);
+      this.sim.attack(this);
     }
   }
   onLure(room) {

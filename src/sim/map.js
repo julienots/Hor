@@ -48,14 +48,43 @@ export const LINKS = {
   VENT_MOUTH: ['VENT'],
 };
 
+// Salles accessibles à pied par le joueur (les portes qu'il peut franchir).
+export const WALK_LINKS = {
+  OFFICE: ['HALL_W', 'HALL_E'],
+  HALL_W: ['OFFICE', 'PARTY', 'WORKSHOP'],
+  HALL_E: ['OFFICE', 'LOBBY', 'KITCHEN', 'GENERATOR'],
+  PARTY: ['HALL_W', 'STAGE', 'LOBBY', 'KITCHEN'],
+  STAGE: ['PARTY', 'BACKSTAGE'],
+  BACKSTAGE: ['STAGE'],
+  LOBBY: ['PARTY', 'HALL_E'],
+  KITCHEN: ['PARTY', 'HALL_E'],
+  WORKSHOP: ['HALL_W'],
+  GENERATOR: ['HALL_E'],
+};
+
+// Graphe utilisé par une mascotte qui traque le joueur hors de la cabine.
+export const HUNT_LINKS = (() => {
+  const g = {};
+  for (const src of [LINKS, WALK_LINKS]) {
+    for (const [a, list] of Object.entries(src)) {
+      for (const b of list) {
+        if (a === 'OFFICE' || b === 'OFFICE') continue;
+        (g[a] ??= new Set()).add(b);
+        (g[b] ??= new Set()).add(a);
+      }
+    }
+  }
+  return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, [...v]]));
+})();
+
 // Plus court chemin (BFS) ; renvoie la liste des salles de `from` à `to` incluses.
-export function shortestPath(from, to, blocked = []) {
+export function shortestPath(from, to, blocked = [], links = LINKS) {
   if (from === to) return [from];
   const prev = { [from]: null };
   const queue = [from];
   while (queue.length) {
     const cur = queue.shift();
-    for (const nb of LINKS[cur] ?? []) {
+    for (const nb of links[cur] ?? []) {
       if (nb in prev || blocked.includes(nb)) continue;
       prev[nb] = cur;
       if (nb === to) {

@@ -266,6 +266,18 @@ export class AudioEngine {
       case 'fragment':
         this.melody(d, t, [79, 83, 86, 91], 0.09, { type: 'sine', gain: 0.15, p: 1, bell: true });
         break;
+      case 'step':
+        this.noise(d, t, 0.09, { type: 'lowpass', freq: 500 * p, gain: 0.35 });
+        this.noise(d, t, 0.05, { type: 'bandpass', freq: 2200, q: 3, gain: 0.05 });
+        break;
+      case 'heart':
+        this.thump(d, t, { freq: 55, gain: 0.7, dur: 0.18 });
+        this.thump(d, t + 0.22, { freq: 50, gain: 0.5, dur: 0.18 });
+        break;
+      case 'flashlight':
+        this.tone(d, t, 0.03, { type: 'square', freq: 1500, gain: 0.06 });
+        this.noise(d, t, 0.04, { type: 'highpass', freq: 3000, gain: 0.15 });
+        break;
       case 'click':
         this.tone(d, t, 0.03, { type: 'square', freq: 800, gain: 0.05 });
         break;

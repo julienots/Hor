@@ -129,10 +129,25 @@
     <div class="bottom">
       <button class="ctl" id="ctl-vent"><small>S</small>Volet du conduit</button>
       <button class="ctl cams" id="ctl-cams"><small>Espace</small>▲ Caméras</button>
+      <button class="ctl" id="ctl-stand"><small>G</small>Se lever</button>
     </div>
     <div id="subs" class="subs" aria-live="polite"></div>
     <div id="hint" class="hint"></div>
   </section>
+
+  <!-- Exploration à pied -->
+  <section id="walkui" class="screen walkui">
+    <div class="walk-room" id="walk-room"></div>
+    <div class="stick-zone" id="stick-zone"><div class="stick-base" id="stick-base"><div class="stick-knob" id="stick-knob"></div></div></div>
+    <div class="walk-btns">
+      <button class="ctl" id="walk-flash"><small>F</small>Lampe</button>
+      <button class="ctl" id="walk-run"><small>Maj</small>Courir</button>
+      <button class="ctl" id="walk-sit"><small>G</small>S'asseoir</button>
+    </div>
+    <div class="walk-help" id="walk-help">ZQSD / WASD pour marcher · souris pour regarder · F lampe · Maj courir</div>
+  </section>
+  <div id="danger" class="danger"></div>
+  <div id="fade" class="fade"></div>
 
   <!-- Interface des caméras -->
   <section id="camui" class="screen camui">

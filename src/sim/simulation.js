@@ -27,6 +27,8 @@ export class Simulation {
       camsOpen: false, cam: 'CAM01', jammed: 0, blackout: 0, powerOut: false,
     };
     this.camState = Object.fromEntries(CAMERAS.map((c) => [c.id, { loopUntil: 0, frozenAt: 0, offlineUntil: 0, alertUntil: 0, disturbUntil: 0 }]));
+    // Joueur : dans la cabine par défaut ; peut sortir explorer le bâtiment.
+    this.player = { room: 'OFFICE', standing: false, flashlight: false, running: false, looking: null, detection: 0, threat: null };
     this.lureCooldown = 0;
     this.shockCooldown = 0;
     this.powerOutTimer = 0;
@@ -102,6 +104,7 @@ export class Simulation {
   toggleDoor(side) {
     const o = this.office;
     if (o.powerOut || this.outcome) return false;
+    if (this.player.room !== 'OFFICE') return false; // commandes accessibles depuis la cabine seulement
     const k = side === 'W' ? 'doorW' : 'doorE';
     if (k === 'doorE' && o.jammed > 0) { this.sound('jam', { side: 'E', vol: 0.6 }); return false; }
     o[k] = !o[k];
@@ -120,7 +123,7 @@ export class Simulation {
 
   toggleVent() {
     const o = this.office;
-    if (o.powerOut || this.outcome) return false;
+    if (o.powerOut || this.outcome || this.player.room !== 'OFFICE') return false;
     o.vent = !o.vent;
     this.noise += 1.5;
     this.sound('vent', { side: 'C', vol: 0.8 });
@@ -129,7 +132,7 @@ export class Simulation {
 
   setCams(open) {
     const o = this.office;
-    if (o.powerOut || this.outcome) open = false;
+    if (o.powerOut || this.outcome || this.player.room !== 'OFFICE' || this.player.standing) open = false;
     o.camsOpen = open;
     if (open) { o.lightW = false; o.lightE = false; }
     return open;
@@ -176,9 +179,11 @@ export class Simulation {
     return true;
   }
 
-  collectFragment(id) {
+  collectFragment(id, walking = false) {
     const f = this.fragments.find((x) => x.id === id);
-    if (!f || !this.fragmentVisible(f)) return false;
+    if (!f) return false;
+    const ok = walking ? this.hour >= f.from && this.hour < f.to && camRoom(f.cam) === this.player.room : this.fragmentVisible(f);
+    if (!ok) return false;
     this.fragments = this.fragments.filter((x) => x.id !== id);
     this.emit({ type: 'fragment', id });
     return true;
@@ -215,6 +220,61 @@ export class Simulation {
     this.sound('roi_sabotage', { side: 'E' });
     this.sound('jam', { side: 'E', vol: 0.8 });
     this.emit({ type: 'sabotage' });
+  }
+
+  // Une mascotte arrive au bout de son compte à rebours : si le joueur est dans la cabine,
+  // c'est l'attaque ; s'il est sorti, la mascotte entre et le traque dans le bâtiment.
+  attack(enemy) {
+    if (this.player.room === 'OFFICE') { this.kill(enemy.key); return; }
+    if (enemy.key === 'mimi') enemy.setDepth(0, 'sort du conduit');
+    enemy.startHunt();
+    this.emit({ type: 'hunt', who: enemy.key });
+    this.sound('choeur_door', { side: 'far', vol: 0.4 });
+  }
+
+  // Le joueur change de salle (exploration).
+  setPlayerRoom(room) {
+    const p = this.player;
+    if (p.room === room) return;
+    p.room = room;
+    p.detection = Math.max(0, p.detection - 0.35);
+    if (room !== 'OFFICE') { this.office.camsOpen = false; this.office.lightW = this.office.lightE = false; }
+    this.emit({ type: 'playerRoom', room });
+  }
+
+  /** Mascottes actives dans la même salle que le joueur. */
+  enemiesWithPlayer() {
+    const r = this.player.room;
+    if (r === 'OFFICE') return [];
+    return this.list.filter((e) => e.active && e.room === r && e.state !== 'stunned' && e.state !== 'inactive');
+  }
+
+  // Détection pendant l'exploration : rester près d'une mascotte remplit la jauge.
+  updateDetection(dt) {
+    const p = this.player;
+    const near = this.enemiesWithPlayer();
+    let rate = 0, threat = null;
+    for (const e of near) {
+      const lit = p.flashlight && p.looking === e.key;
+      // Règles cohérentes avec la cabine
+      if (e.key === 'mc' && lit) { e.note = 'figé par la lampe'; e.pose = 'frozen'; continue; }
+      if (e.key === 'ruban' && lit) {
+        e.lit = (e.lit ?? 0) + dt;
+        if (e.lit > 1.4) { e.lit = 0; e.state = 'roam'; e.moveTo('LOBBY', 'fuit la lampe'); this.sound('ruban_retreat', { side: 'far' }); }
+        continue;
+      }
+      let r = { mc: 0.24, mimi: 0.18, roi: 0.14, ruban: 0.2, choeur: 0.26 }[e.key];
+      if (e.key === 'mimi' && !p.running) r *= 0.5;
+      if (p.running) r *= 1.7;
+      if (p.flashlight && !lit) r *= 1.25;
+      if (e.state === 'hunt') r *= 2.2;
+      if (e.state === 'sabotage') r *= 0.5;
+      if (r > rate) { rate = r; threat = e.key; }
+    }
+    p.threat = threat;
+    if (rate > 0) p.detection += rate * dt;
+    else p.detection = Math.max(0, p.detection - dt * 0.4);
+    if (p.detection >= 1) this.kill(threat);
   }
 
   kill(who) {
@@ -281,6 +341,7 @@ export class Simulation {
       e.update(dt);
       if (this.outcome) return;
     }
+    if (this.player.room !== 'OFFICE') this.updateDetection(dt);
   }
 
   powerOut() {

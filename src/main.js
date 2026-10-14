@@ -160,18 +160,26 @@ addEventListener('keydown', (e) => {
   if (e.key === 'F3') { e.preventDefault(); settings.debug = !settings.debug; writeSave(save); return; }
   if (mode === 'game' && game) game.onKey(e);
 });
+addEventListener('keyup', (e) => { if (mode === 'game' && game) game.onKeyUp(e); });
+const walking = () => mode === 'game' && game && game.walking && !game.paused && !game.ended;
 const canvas = renderer.canvas;
 let down = null;
-canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, lx: e.clientX, moved: 0 }; });
+canvas.addEventListener('pointerdown', (e) => {
+  if (walking()) { game.onWalkPointer('down', e); return; }
+  down = { x: e.clientX, y: e.clientY, lx: e.clientX, moved: 0 };
+});
 addEventListener('pointermove', (e) => {
+  if (walking()) { game.onWalkPointer('move', e); return; }
   if (mode !== 'game' || !game) return;
   if (e.pointerType === 'mouse') game.onPointerMove(e.clientX, e.clientY, 'mouse', 0);
   else if (down) { const dx = e.clientX - down.lx; down.lx = e.clientX; down.moved += Math.abs(dx); game.onPointerMove(e.clientX, e.clientY, 'touch', dx); }
 });
 addEventListener('pointerup', (e) => {
+  if (walking()) { game.onWalkPointer('up', e); return; }
   if (down && down.moved < 12 && e.target === canvas && mode === 'game' && game) game.onTap(e.clientX, e.clientY);
   down = null;
 });
+addEventListener('pointercancel', (e) => { if (walking()) game.onWalkPointer('cancel', e); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && game && !game.ended) game.pause(true); });
 
 // ---------------- Boucle principale ----------------

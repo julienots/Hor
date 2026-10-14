@@ -203,3 +203,85 @@ describe('Équité : un joueur appliquant les règles survit, un joueur passif m
     });
   }
 });
+
+describe('Exploration du bâtiment', () => {
+  const calm = (night = 3) => {
+    const sim = new Simulation({ night, seed: 21 });
+    sim.refreshLevels = () => {};
+    for (const e of sim.list) e.level = 0;
+    return sim;
+  };
+
+  it('rester dans la salle d’une mascotte remplit la jauge et tue', () => {
+    const sim = calm();
+    sim.enemies.roi.level = 1; // le Roi se trouve en cuisine
+    sim.setPlayerRoom('KITCHEN');
+    for (let i = 0; i < 200 && !sim.outcome; i++) { sim.office.power = 100; sim.update(0.1); }
+    expect(sim.outcome).toBe('dead');
+    expect(sim.killer).toBe('roi');
+  });
+
+  it('quitter la salle fait redescendre la jauge', () => {
+    const sim = calm();
+    sim.enemies.roi.level = 1;
+    sim.setPlayerRoom('KITCHEN');
+    for (let i = 0; i < 30; i++) sim.update(0.1);
+    const d = sim.player.detection;
+    expect(d).toBeGreaterThan(0.2);
+    sim.setPlayerRoom('HALL_E');
+    for (let i = 0; i < 30; i++) sim.update(0.1);
+    expect(sim.player.detection).toBeLessThan(d);
+    expect(sim.outcome).toBeNull();
+  });
+
+  it('la lampe braquée fige le Maître de Cérémonie et fait fuir Madame Ruban', () => {
+    const sim = calm();
+    sim.enemies.mc.level = 20;
+    sim.setPlayerRoom('STAGE');
+    sim.player.flashlight = true;
+    sim.player.looking = 'mc';
+    for (let i = 0; i < 300; i++) { sim.office.power = 100; sim.update(0.1); }
+    expect(sim.enemies.mc.room).toBe('STAGE');
+    expect(sim.outcome).toBeNull();
+    const s2 = calm();
+    s2.enemies.ruban.level = 1;
+    s2.setPlayerRoom('LOBBY');
+    s2.player.flashlight = true;
+    s2.player.looking = 'ruban';
+    s2.enemies.ruban.room = 'LOBBY';
+    s2.setPlayerRoom('HALL_E');
+    s2.enemies.ruban.room = 'HALL_E';
+    for (let i = 0; i < 20; i++) s2.update(0.1);
+    expect(s2.enemies.ruban.room).toBe('LOBBY');
+  });
+
+  it('hors de la cabine, une mascotte à la porte se met à traquer au lieu de tuer', () => {
+    const sim = calm(1);
+    sim.enemies.mc.level = 20;
+    for (let i = 0; i < 2000 && sim.enemies.mc.room !== 'DOOR_W'; i++) sim.update(0.1);
+    sim.setPlayerRoom('HALL_E');
+    sim.setPlayerRoom('GENERATOR');
+    for (let i = 0; i < 150 && sim.enemies.mc.state !== 'hunt'; i++) { sim.office.power = 100; sim.update(0.1); }
+    expect(sim.enemies.mc.state).toBe('hunt');
+    expect(sim.outcome).toBeNull();
+    // il se rapproche du joueur
+    for (let i = 0; i < 150 && sim.enemies.mc.room !== 'GENERATOR' && !sim.outcome; i++) { sim.office.power = 100; sim.update(0.1); }
+    expect(sim.enemies.mc.room === 'GENERATOR' || sim.outcome === 'dead').toBe(true);
+    // revenir dans la cabine met fin à la traque
+    const s2 = calm(1);
+    s2.enemies.mc.level = 20;
+    s2.enemies.mc.startHunt();
+    s2.setPlayerRoom('HALL_W');
+    s2.setPlayerRoom('OFFICE');
+    s2.update(0.2);
+    expect(s2.enemies.mc.state).toBe('roam');
+    expect(s2.enemies.mc.room).toBe('STAGE');
+  });
+
+  it('les commandes de la cabine sont inaccessibles dehors', () => {
+    const sim = calm();
+    sim.setPlayerRoom('HALL_W');
+    expect(sim.toggleDoor('W')).toBe(false);
+    expect(sim.setCams(true)).toBe(false);
+  });
+});

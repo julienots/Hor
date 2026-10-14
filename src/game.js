@@ -23,6 +23,8 @@ const HINTS = {
   choeurHall: 'Le Chœur approche : joue un leurre sonore (L) dans une salle éloignée de toi.',
   tamper: "Une caméra semble figée ? Regarde l'horodatage : s'il ne bouge plus, appuie sur Réinitialiser (R).",
   lowPower: 'Énergie faible : limite les portes, les lumières et les caméras.',
+  explore: "Hors de la cabine, les mascottes te repèrent si tu restes près d'elles (bord rouge). La lampe (F) fige le Maître de Cérémonie et fait fuir Madame Ruban. Courir fait du bruit.",
+  hunt: "Une mascotte a trouvé la cabine vide : elle te traque ! Reviens dans la cabine pour qu'elle abandonne.",
   cams: "Ouvre les caméras (Espace) pour surveiller le Maître de Cérémonie : il ne bouge pas tant que tu le regardes.",
 };
 
@@ -43,6 +45,14 @@ export class Game {
     this.hintTimer = 0;
     this.lastCam = null;
     this.debugTimer = 0;
+    this.walking = false;
+    this.keys = new Set();
+    this.stick = { x: 0, y: 0, id: null };
+    this.lookPtr = null;
+    this.runToggle = false;
+    this.stepAcc = 0;
+    this.heartT = 0;
+    this.transit = null;
     this.r.resetCameras();
     this.r.yaw = this.r.targetYaw = 0;
     this.r.dark = 0;
@@ -93,6 +103,10 @@ export class Game {
     on('btn-pause', () => this.pause(true));
     on('tape-next', () => this.nextTapeLine());
     on('tape-skip', () => { this.tapeLines = []; this.nextTapeLine(); });
+    on('ctl-stand', () => this.standUp());
+    on('walk-sit', () => this.sitDown());
+    on('walk-flash', () => this.toggleFlash());
+    on('walk-run', () => { this.runToggle = !this.runToggle; $('walk-run').classList.toggle('on', this.runToggle); });
   }
 
   toggleLight(side) {
@@ -193,6 +207,13 @@ export class Game {
     if (k === 'escape' || k === 'p') { this.pause(!this.paused); return; }
     if (this.paused) return;
     this.a.unlock();
+    if (k === 'g') { this.walking ? this.sitDown() : this.standUp(); return; }
+    if (this.walking) {
+      this.keys.add(k);
+      if (k === 'f') this.toggleFlash();
+      if (k === ' ' || k.startsWith('arrow')) e.preventDefault();
+      return;
+    }
     const o = this.sim.office;
     if (k === ' ' || k === 'tab') { e.preventDefault(); this.setCams(!o.camsOpen); return; }
     if (k === 'q') this.sim.toggleDoor('W');
@@ -208,6 +229,147 @@ export class Game {
     else if (/^[0-9]$/.test(k) && o.camsOpen) this.selectCam('CAM' + (k === '0' ? '10' : '0' + k));
   }
 
+  onKeyUp(e) { this.keys.delete(e.key.toLowerCase()); }
+
+  // ---------------- Exploration à pied ----------------
+  standUp() {
+    const o = this.sim.office;
+    if (this.ended || this.walking || o.camsOpen) return;
+    this.walking = true;
+    this.sim.player.standing = true;
+    this.r.startExplore('OFFICE', 0, 0.75, this.r.yaw);
+    $('walkui').classList.add('active');
+    $('hud').classList.add('walking');
+    $('walk-room').textContent = 'Cabine de surveillance';
+    this.hint('explore', true);
+  }
+
+  sitDown() {
+    if (!this.walking) return;
+    if (this.sim.player.room !== 'OFFICE') { this.toast("Retourne dans la cabine pour t'asseoir.", 1800); return; }
+    const yaw = this.r.explore?.yaw ?? 0;
+    this.walking = false;
+    this.sim.player.standing = false;
+    this.sim.player.running = false;
+    this.r.stopExplore();
+    this.r.yaw = this.r.targetYaw = Math.max(-MAX_YAW, Math.min(MAX_YAW, Math.atan2(Math.sin(yaw), Math.cos(yaw))));
+    $('walkui').classList.remove('active');
+    $('hud').classList.remove('walking');
+    $('danger').style.opacity = 0;
+    if (document.pointerLockElement) document.exitPointerLock?.();
+  }
+
+  toggleFlash() {
+    const p = this.sim.player;
+    p.flashlight = !p.flashlight;
+    $('walk-flash').classList.toggle('on', p.flashlight);
+    this.a.play('flashlight', { side: 'C', vol: 0.6 });
+  }
+
+  useDoor(door) {
+    const sim = this.sim, o = sim.office;
+    const from = sim.player.room;
+    // Les portes blindées de la cabine bloquent le passage quand elles sont fermées.
+    const officeSide = from === 'OFFICE' ? door.side : door.to === 'OFFICE' ? (from === 'HALL_W' ? 'W' : 'E') : null;
+    if (officeSide && (officeSide === 'W' ? o.doorW : o.doorE)) {
+      const e = this.r.explore;
+      e.x += door.inX * 0.35; e.z += door.inZ * 0.35;
+      if (!this.blockedMsg) { this.toast('La porte blindée est fermée.', 1500); this.blockedMsg = true; setTimeout(() => { this.blockedMsg = false; }, 1600); }
+      return;
+    }
+    this.transit = { door, from, t: 0.22 };
+    $('fade').classList.add('on');
+    this.a.play('door', { side: 'C', vol: 0.35 });
+  }
+
+  updateWalking(dt) {
+    const sim = this.sim, r = this.r;
+    if (this.transit) {
+      this.transit.t -= dt;
+      if (this.transit.t <= 0) {
+        const { door, from } = this.transit;
+        this.transit = null;
+        sim.setPlayerRoom(door.to);
+        r.enterRoom(door.to, from);
+        const name = door.to === 'OFFICE' ? 'Cabine de surveillance' : ROOMS[door.to].name;
+        $('walk-room').textContent = name;
+        this.toast(name, 1200);
+        setTimeout(() => $('fade').classList.remove('on'), 60);
+      }
+      return;
+    }
+    const K = this.keys;
+    const has = (...ks) => ks.some((k) => K.has(k));
+    let fwd = (has('z', 'w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0) - this.stick.y;
+    let side = (has('d') ? 1 : 0) - (has('q', 'a') ? 1 : 0) + this.stick.x;
+    const turn = (has('arrowleft') ? 1 : 0) - (has('arrowright') ? 1 : 0);
+    if (turn) r.look(turn * dt * 2.2, 0);
+    const mag = Math.hypot(fwd, side);
+    if (mag > 1) { fwd /= mag; side /= mag; }
+    const moving = mag > 0.1;
+    const running = moving && (has('shift') || this.runToggle);
+    sim.player.running = running;
+    const speed = running ? 3.4 : 1.9;
+    const door = r.walk(dt, fwd, side, speed);
+    if (door) this.useDoor(door);
+    if (moving) {
+      this.stepAcc += Math.min(1, mag) * speed * dt;
+      if (this.stepAcc > (running ? 1.0 : 0.75)) { this.stepAcc = 0; this.a.play('step', { side: 'C', vol: running ? 0.6 : 0.3 }); }
+      if (running) sim.noise = Math.min(4, sim.noise + dt * 0.6);
+    }
+    // jauge de danger + battements de cœur
+    const det = sim.player.detection;
+    $('danger').style.opacity = Math.min(1, det * 1.15);
+    $('hud').classList.toggle('outside', sim.player.room !== 'OFFICE');
+    if (det > 0.25) {
+      this.heartT -= dt;
+      if (this.heartT <= 0) { this.heartT = 1.1 - det * 0.6; this.a.play('heart', { side: 'C', vol: 0.4 + det * 0.6 }); }
+    }
+    // fragment ramassé à pied
+    if (r.fragment.visible && r.fragment.userData.near) this.collectFragment(r.fragment.userData.id, true);
+  }
+
+  // Pointeur pendant l'exploration : joystick (moitié gauche) et regard (moitié droite)
+  onWalkPointer(type, e) {
+    const s = this.save.settings.sensitivity;
+    if (e.pointerType === 'mouse') {
+      if (type === 'down') { this.r.canvas.requestPointerLock?.()?.catch?.(() => {}); this.lookPtr = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0 }; }
+      if (type === 'move') {
+        if (document.pointerLockElement) this.r.look(-e.movementX * 0.0025 * s, -e.movementY * 0.0025 * s);
+        else if (this.lookPtr) { this.r.look(-(e.clientX - this.lookPtr.x) * 0.005 * s, -(e.clientY - this.lookPtr.y) * 0.005 * s); this.lookPtr.x = e.clientX; this.lookPtr.y = e.clientY; }
+      }
+      if (type === 'up') { if (this.lookPtr && !document.pointerLockElement) this.onTap(e.clientX, e.clientY); else if (document.pointerLockElement) this.onTap(innerWidth / 2, innerHeight / 2); this.lookPtr = null; }
+      return;
+    }
+    document.body.classList.add('touch');
+    const base = $('stick-base').getBoundingClientRect();
+    const cx = base.left + base.width / 2, cy = base.top + base.height / 2;
+    if (type === 'down') {
+      if (e.clientX < innerWidth * 0.45 && this.stick.id === null) { this.stick.id = e.pointerId; }
+      else if (!this.lookPtr) this.lookPtr = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0 };
+    }
+    if (this.stick.id === e.pointerId) {
+      if (type === 'up' || type === 'cancel') { this.stick = { x: 0, y: 0, id: null }; }
+      else {
+        let dx = e.clientX - cx, dy = e.clientY - cy;
+        const l = Math.hypot(dx, dy), max = 50;
+        if (l > max) { dx = (dx / l) * max; dy = (dy / l) * max; }
+        this.stick.x = dx / max; this.stick.y = dy / max;
+      }
+      $('stick-knob').style.transform = `translate(${this.stick.x * 50}px, ${this.stick.y * 50}px)`;
+      return;
+    }
+    if (this.lookPtr?.id === e.pointerId) {
+      if (type === 'move') {
+        const dx = e.clientX - this.lookPtr.x, dy = e.clientY - this.lookPtr.y;
+        this.lookPtr.moved += Math.abs(dx) + Math.abs(dy);
+        this.r.look(-dx * 0.006 * s, -dy * 0.006 * s);
+        this.lookPtr.x = e.clientX; this.lookPtr.y = e.clientY;
+      }
+      if (type === 'up' || type === 'cancel') { if (this.lookPtr.moved < 12 && type === 'up') this.onTap(e.clientX, e.clientY); this.lookPtr = null; }
+    }
+  }
+
   onPointerMove(x, y, type, dx) {
     if (this.paused || this.ended || this.sim.office.camsOpen) return;
     const s = this.save.settings.sensitivity;
@@ -220,15 +382,15 @@ export class Game {
     this.a.unlock();
     const name = this.r.pick(x, y);
     if (!name) return;
-    if (name === 'fragment') return this.collectFragment();
+    if (name === 'fragment') return this.collectFragment(this.r.fragment.userData.id, this.walking);
     if (this.sim.office.camsOpen) return;
     const act = { btn_doorW: () => this.sim.toggleDoor('W'), btn_doorE: () => this.sim.toggleDoor('E'), btn_lightW: () => this.toggleLight('W'), btn_lightE: () => this.toggleLight('E'), btn_vent: () => this.sim.toggleVent(), btn_cams: () => this.setCams(true) }[name];
     act?.();
   }
 
-  collectFragment() {
-    const f = this.sim.fragments.find((x) => x.cam === this.sim.office.cam);
-    if (!f || !this.sim.collectFragment(f.id)) return;
+  collectFragment(id = null, walking = false) {
+    const f = id ? this.sim.fragments.find((x) => x.id === id) : this.sim.fragments.find((x) => x.cam === this.sim.office.cam);
+    if (!f || !this.sim.collectFragment(f.id, walking)) return;
     if (!this.save.fragments.includes(f.id)) this.save.fragments.push(f.id);
     writeSave(this.save);
     this.a.play('fragment', { side: 'C' });
@@ -259,9 +421,14 @@ export class Game {
     if (e.ruban.room === 'DOOR_E') this.hint('rubanDoor');
     if (e.choeur.active && (e.choeur.room === 'HALL_W' || e.choeur.room === 'HALL_E')) this.hint('choeurHall');
     if (sim.office.power < 20 && !sim.office.powerOut) this.hint('lowPower');
+    if (this.walking && !this.ended) this.updateWalking(dt);
     // rendu
     if (!this.r.jumpscare) {
-      if (sim.office.camsOpen) this.r.setCamFeed(sim, sim.office.cam);
+      if (this.walking) {
+        if (sim.player.room === 'OFFICE') this.r.setOffice(sim);
+        else this.r.placeEnemies(sim, false);
+        this.r.post.uniforms.uCam.value = 0;
+      } else if (sim.office.camsOpen) this.r.setCamFeed(sim, sim.office.cam);
       else this.r.setOffice(sim);
     }
     this.r.dark = sim.office.powerOut ? 0.55 : 0;
@@ -275,6 +442,10 @@ export class Game {
       case 'sound':
         this.a.play(ev.id, { side: ev.side, vol: ev.vol, fake: ev.fake, speaker: ev.speaker });
         if (!['click', 'blip'].includes(ev.id)) this.subtitle(captionFor(ev.id, ev.fake), ev.fake, ev.side);
+        break;
+      case 'hunt':
+        this.toast(`${LORE[ev.who].name} est entré dans la cabine vide… il te traque !`, 3000);
+        this.hint('hunt', true);
         break;
       case 'tamper':
         if (this.night >= 3) this.hint('tamper');
@@ -352,6 +523,9 @@ export class Game {
 
   onDeath(who) {
     this.ended = true;
+    $('walkui').classList.remove('active');
+    $('danger').style.opacity = 0;
+    if (document.pointerLockElement) document.exitPointerLock?.();
     $('camui').classList.remove('active');
     $('hud').classList.remove('cams-open');
     document.body.classList.remove('cams-open');
@@ -398,6 +572,11 @@ export class Game {
   }
 
   destroy() {
+    $('walkui').classList.remove('active');
+    $('hud').classList.remove('walking');
+    $('danger').style.opacity = 0;
+    $('fade').classList.remove('on');
+    if (document.pointerLockElement) document.exitPointerLock?.();
     document.body.classList.remove('cams-open');
     this.a.stopAmbience();
     this.a.setCamHiss(false);
