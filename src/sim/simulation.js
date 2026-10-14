@@ -10,7 +10,8 @@ const STEP = 0.05;
 
 // Simulation complète d'une nuit, indépendante du rendu (testable sans navigateur).
 export class Simulation {
-  constructor({ night = 1, seed = Date.now() & 0xffffffff, hourSeconds = HOUR_SECONDS, collected = [] } = {}) {
+  constructor({ night = 1, seed = Date.now() & 0xffffffff, hourSeconds = HOUR_SECONDS, collected = [], grace = 0 } = {}) {
+    this.grace = grace; // secondes de calme au début (temps d'écouter la bande d'Odile)
     this.nightCfg = NIGHTS.find((n) => n.id === night) ?? NIGHTS[0];
     this.night = this.nightCfg.id;
     this.rng = createRng(seed);
@@ -265,11 +266,17 @@ export class Simulation {
         this.paradeStarted = true;
         this.sound('parade', { side: 'W', vol: 0.8 });
         this.emit({ type: 'parade' });
+        // Le Roi des Rouages apparaît dans l'encadrement ouest, éclairé par sa chaudière.
+        const roi = this.enemies.roi;
+        roi.level = Math.max(roi.level, 1);
+        roi.room = 'DOOR_W';
+        roi.pose = 'peek';
       }
       if (this.powerOutTimer <= 0) this.kill('roi');
       return; // dans le noir, seule la Parade compte
     }
 
+    if (this.time < this.grace) return;
     for (const e of this.list) {
       e.update(dt);
       if (this.outcome) return;

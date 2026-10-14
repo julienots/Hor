@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#000000" />
+<title>NIGHTSHIFT — The Hollow Parade</title>
+<meta name="description" content="Jeu d'horreur 3D cartoon original du studio SUPERESSENCE." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Creepster&family=Special+Elite&display=swap" rel="stylesheet" />
+
+</head>
+<body>
+<div id="app">
+  <div id="gl"></div>
+
+  <!-- Écran du studio -->
+  <section id="splash" class="screen active">
+    <div class="logo"><span class="s1">Super</span><span class="s2">Essence</span><span class="dot">.</span></div>
+    <p class="presents">présente</p>
+    <button id="splash-start" class="btn big">Toucher pour commencer</button>
+    <p class="warn">Contient des images effrayantes, des sons forts et des lumières clignotantes. Réglages d'accessibilité disponibles dans les paramètres.</p>
+  </section>
+
+  <!-- Menu principal -->
+  <section id="menu" class="screen">
+    <div class="title-block">
+      <div class="studio">SUPERESSENCE</div>
+      <h1 class="title">NIGHTSHIFT</h1>
+      <div class="subtitle">The Hollow Parade</div>
+    </div>
+    <nav class="menu-list">
+      <button class="btn" data-action="continue" id="btn-continue">Continuer</button>
+      <button class="btn" data-action="new">Nouvelle partie</button>
+      <button class="btn" data-action="nights">Nuits</button>
+      <button class="btn" data-action="files">Dossiers des mascottes</button>
+      <button class="btn" data-action="settings">Paramètres</button>
+      <button class="btn" data-action="credits">Crédits</button>
+    </nav>
+    <div class="menu-foot" id="menu-foot"></div>
+  </section>
+
+  <!-- Choix des nuits -->
+  <section id="nights" class="screen panel-screen">
+    <div class="panel">
+      <h2>Nuits</h2>
+      <div id="night-list" class="night-list"></div>
+      <p id="frag-count" class="muted"></p>
+      <button class="btn" data-action="back">Retour</button>
+    </div>
+  </section>
+
+  <!-- Dossiers des mascottes (galerie 3D) -->
+  <section id="files" class="screen">
+    <div class="files-ui">
+      <div class="files-head">
+        <button class="btn small" id="file-prev" aria-label="Précédent">◀</button>
+        <h2 id="file-name"></h2>
+        <button class="btn small" id="file-next" aria-label="Suivant">▶</button>
+      </div>
+      <p id="file-bio" class="file-text"></p>
+      <p id="file-rule" class="file-rule"></p>
+      <div class="anim-buttons" id="anim-buttons"></div>
+      <p class="muted tiny">Modèle 3D procédural (placeholder avancé) — voir docs/ASSETS_A_PRODUIRE.md</p>
+      <button class="btn" data-action="back">Retour</button>
+    </div>
+  </section>
+
+  <!-- Paramètres -->
+  <section id="settings" class="screen panel-screen">
+    <div class="panel scroll">
+      <h2>Paramètres</h2>
+      <h3>Audio</h3>
+      <label>Volume général <input type="range" min="0" max="1" step="0.05" data-set="volMaster" /></label>
+      <label>Ambiance <input type="range" min="0" max="1" step="0.05" data-set="volAmbience" /></label>
+      <label>Effets sonores <input type="range" min="0" max="1" step="0.05" data-set="volSfx" /></label>
+      <label>Jumpscares <input type="range" min="0" max="1" step="0.05" data-set="volScare" /></label>
+      <label>Musique <input type="range" min="0" max="1" step="0.05" data-set="volMusic" /></label>
+      <h3>Contrôles</h3>
+      <label>Sensibilité du regard <input type="range" min="0.4" max="2" step="0.1" data-set="sensitivity" /></label>
+      <h3>Graphismes</h3>
+      <label>Qualité
+        <select data-set="quality"><option value="low">Basse (mobile)</option><option value="medium">Moyenne</option><option value="high">Haute</option></select>
+      </label>
+      <label class="check"><input type="checkbox" data-set="showFps" /> Afficher les FPS</label>
+      <h3>Accessibilité</h3>
+      <label class="check"><input type="checkbox" data-set="subtitles" /> Sous-titres des sons</label>
+      <label class="check"><input type="checkbox" data-set="reduceFlash" /> Réduire les flashs lumineux</label>
+      <label class="check"><input type="checkbox" data-set="shake" /> Tremblements de caméra</label>
+      <label class="check"><input type="checkbox" data-set="vibration" /> Vibrations (mobile)</label>
+      <h3>Développement</h3>
+      <label class="check"><input type="checkbox" data-set="debug" /> Diagnostic de l'IA (F3)</label>
+      <button class="btn danger" id="btn-reset">Effacer la progression</button>
+      <button class="btn" data-action="back">Retour</button>
+    </div>
+  </section>
+
+  <!-- Crédits -->
+  <section id="credits" class="screen panel-screen">
+    <div class="panel">
+      <h2>Crédits</h2>
+      <p>Un jeu <b>SUPERESSENCE</b>.</p>
+      <p>Univers, personnages, modèles procéduraux, musique et sons originaux.<br/>Moteur : Three.js (licence MIT).</p>
+      <p class="muted">Inspiré par les jeux de survie en salle de surveillance. Aucun contenu d'un autre jeu n'est utilisé.</p>
+      <button class="btn" data-action="back">Retour</button>
+    </div>
+  </section>
+
+  <!-- HUD de jeu -->
+  <section id="hud" class="screen hud">
+    <div class="hud-top">
+      <div class="hud-time"><span id="hud-night">Nuit 1</span><b id="hud-clock">00:00</b></div>
+      <button class="btn icon" id="btn-pause" aria-label="Pause">❚❚</button>
+    </div>
+    <div class="hud-power">
+      <div>Énergie <b id="hud-power">100 %</b></div>
+      <div class="usage" id="hud-usage"></div>
+      <div id="hud-status" class="status"></div>
+    </div>
+    <div class="side left">
+      <button class="ctl" id="ctl-doorW"><small>Q</small>Porte<br/>ouest</button>
+      <button class="ctl" id="ctl-lightW"><small>A</small>Lumière<br/>ouest</button>
+    </div>
+    <div class="side right">
+      <button class="ctl" id="ctl-doorE"><small>D</small>Porte<br/>est</button>
+      <button class="ctl" id="ctl-lightE"><small>E</small>Lumière<br/>est</button>
+    </div>
+    <div class="bottom">
+      <button class="ctl" id="ctl-vent"><small>S</small>Volet du conduit</button>
+      <button class="ctl cams" id="ctl-cams"><small>Espace</small>▲ Caméras</button>
+    </div>
+    <div id="subs" class="subs" aria-live="polite"></div>
+    <div id="hint" class="hint"></div>
+  </section>
+
+  <!-- Interface des caméras -->
+  <section id="camui" class="screen camui">
+    <div class="cam-head">
+      <div><span class="rec">● REC</span> <b id="cam-name">CAM 01</b></div>
+      <div id="cam-stamp" class="stamp">00:00:00</div>
+    </div>
+    <div id="cam-msg" class="cam-msg"></div>
+    <div class="cam-actions">
+      <button class="ctl" id="cam-lure"><small>L</small>Leurre sonore</button>
+      <button class="ctl" id="cam-shock"><small>X</small>Décharge</button>
+      <button class="ctl" id="cam-reset"><small>R</small>Réinitialiser</button>
+    </div>
+    <div class="cam-map" id="cam-map"></div>
+    <button class="ctl cams close" id="cam-close"><small>Espace</small>▼ Baisser</button>
+  </section>
+
+  <!-- Bande magnétique d'Odile -->
+  <div id="tape" class="tape">
+    <div class="tape-head">▶ Bande d'Odile Marchal</div>
+    <p id="tape-text"></p>
+    <div class="tape-btns"><button class="btn small" id="tape-next">Suivant</button><button class="btn small" id="tape-skip">Passer</button></div>
+  </div>
+
+  <!-- Pause -->
+  <section id="pause" class="screen panel-screen">
+    <div class="panel">
+      <h2>Pause</h2>
+      <button class="btn" data-action="resume">Reprendre</button>
+      <button class="btn" data-action="settings">Paramètres</button>
+      <button class="btn" data-action="quit">Quitter vers le menu</button>
+    </div>
+  </section>
+
+  <!-- Fin de nuit -->
+  <section id="gameover" class="screen panel-screen">
+    <div class="panel">
+      <h2 class="red">Fin de service</h2>
+      <p id="go-who"></p>
+      <p id="go-tip" class="tip"></p>
+      <button class="btn" data-action="retry">Réessayer la nuit</button>
+      <button class="btn" data-action="quit">Menu</button>
+    </div>
+  </section>
+  <section id="win" class="screen panel-screen">
+    <div class="panel">
+      <h2 class="gold">06:00</h2>
+      <p id="win-text"></p>
+      <button class="btn" data-action="next">Nuit suivante</button>
+      <button class="btn" data-action="quit">Menu</button>
+    </div>
+  </section>
+
+  <pre id="debug" class="debug"></pre>
+  <div id="fps" class="fps"></div>
+  <div id="toast" class="toast"></div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

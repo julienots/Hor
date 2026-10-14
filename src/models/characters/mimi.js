@@ -145,11 +145,24 @@ export function buildMimi() {
     R.set('jaw', 0.3 + Math.max(0, Math.sin(t * 2)) * 0.3);
     R.set('eyes', 2.5);
   };
-  clips.jumpscare = ((base) => (t, R, T) => { base(t, R, T); R.set('neck', Math.min(1.4, t * 6)); R.set('jaw', 1.2); })(clips.jumpscare);
+  clips.ventpeek = (t, R) => {
+    // Allongée dans le conduit, le cou déplié vers l'avant, la tête tournée vers le joueur
+    R.p('hips', 0, -0.32, 0);
+    R.r('hips', 1.45, 0, 0);
+    R.r('chest', 0.05, 0, 0);
+    R.r('neck', 0.05, 0, 0);
+    R.r('head', -1.45, Math.sin(t * 0.5) * 0.25, Math.sin(t * 0.7) * 0.5 + twitch(t, 1.5, 4));
+    R.r('shoulderL', -2.6, 0, 0.2); R.r('shoulderR', -2.6, 0, -0.2);
+    R.set('neck', 0.55 + Math.sin(t * 0.9) * 0.08);
+    R.set('jaw', 0.2 + Math.max(0, Math.sin(t * 2)) * 0.3);
+    R.set('eyes', 2.5);
+  };
+  clips.jumpscare = ((base) => (t, R, T) => { base(t, R, T); R.set('neck', Math.min(0.5, t * 4)); R.set('jaw', 1.2); R.r('head', -0.55, 0, 0); })(clips.jumpscare);
 
   const rig = new Rig(root, clips, (p) => {
     const ext = p.neck ?? 0;
-    neckRings.forEach((r, i) => { r.position.y = i * (0.02 + ext * 0.06); });
+    const gap = 0.02 + ext * 0.06;
+    neckRings.forEach((r, i) => { r.position.y = i * gap; r.scale.y = Math.max(1, gap / 0.03); });
     J.head.position.y = 0.06 + ext * 0.36;
     chin.position.y = 0.06 - (p.jaw ?? 0) * 0.06;
     const glow = p.eyes ?? 1;
