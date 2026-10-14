@@ -149,3 +149,26 @@ button { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) { .title, .rec, .cam-map button.alert { animation: none; } }
 .hud.cams-open .side, .hud.cams-open .bottom { display: none; }
 .gl-error { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 18px; z-index: 50; background: #000; }
+/* La bande d'Odile se masque pendant la consultation des caméras (elle continue en fond) */
+body.cams-open .tape { display: none; }
+/* Téléphones en paysage : écrans peu hauts */
+@media (max-height: 520px) {
+  .title { font-size: clamp(40px, 9vh + 4vw, 80px); }
+  .subtitle { font-size: 15px; }
+  .menu-list { gap: 6px; }
+  .menu-list .btn { padding: 7px 16px; font-size: 15px; min-height: 36px; }
+  #menu { padding-top: 10px; }
+  .tape { top: 6px; width: min(440px, 52vw); padding: 6px 10px; }
+  .tape p { font-size: 12px; min-height: 0; margin: 3px 0; }
+  .tape-head { font-size: 11px; }
+  .tape .btn.small { padding: 4px 10px; font-size: 12px; min-height: 30px; }
+  .hud-time b { font-size: 24px; }
+  .hud-power { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 60px); font-size: 12px; }
+  .ctl { min-height: 46px; }
+  .cam-head { top: calc(max(6px, env(safe-area-inset-top)) + 40px); font-size: 14px; }
+  .cam-actions { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 58px); }
+  .cam-map { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 58px); width: min(300px, 40vw, 68vh); }
+  .hint { top: 30%; font-size: 13px; }
+  .panel { padding: 14px; gap: 8px; }
+  .panel h2 { font-size: 30px; }
+}

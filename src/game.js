@@ -113,6 +113,7 @@ export class Game {
     this.r.static = 0.9;
     $('camui').classList.toggle('active', v);
     $('hud').classList.toggle('cams-open', v);
+    document.body.classList.toggle('cams-open', v);
     if (v) { this.onCamChanged(); this.hint('cams', this.night === 1); }
     else this.r.setOffice(this.sim);
   }
@@ -353,6 +354,7 @@ export class Game {
     this.ended = true;
     $('camui').classList.remove('active');
     $('hud').classList.remove('cams-open');
+    document.body.classList.remove('cams-open');
     $('tape').classList.remove('show');
     this.a.setCamHiss(false);
     this.r.post.uniforms.uCam.value = 0;
@@ -396,6 +398,7 @@ export class Game {
   }
 
   destroy() {
+    document.body.classList.remove('cams-open');
     this.a.stopAmbience();
     this.a.setCamHiss(false);
     for (const id of ['hud', 'camui', 'pause', 'gameover', 'win']) $(id).classList.remove('active');
