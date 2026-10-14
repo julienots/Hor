@@ -3,6 +3,7 @@ import { CAMERAS, ROOMS, camRoom } from './sim/map.js';
 import { NIGHT_MESSAGES, LORE, ENDINGS, FRAGMENTS } from './sim/story.js';
 import { captionFor } from './sim/captions.js';
 import { writeSave } from './save.js';
+import { nearArmoredDoor } from './render/walk.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_YAW = 1.2;
@@ -52,7 +53,6 @@ export class Game {
     this.runToggle = false;
     this.stepAcc = 0;
     this.heartT = 0;
-    this.transit = null;
     this.r.resetCameras();
     this.r.yaw = this.r.targetYaw = 0;
     this.r.dark = 0;
@@ -266,38 +266,8 @@ export class Game {
     this.a.play('flashlight', { side: 'C', vol: 0.6 });
   }
 
-  useDoor(door) {
-    const sim = this.sim, o = sim.office;
-    const from = sim.player.room;
-    // Les portes blindées de la cabine bloquent le passage quand elles sont fermées.
-    const officeSide = from === 'OFFICE' ? door.side : door.to === 'OFFICE' ? (from === 'HALL_W' ? 'W' : 'E') : null;
-    if (officeSide && (officeSide === 'W' ? o.doorW : o.doorE)) {
-      const e = this.r.explore;
-      e.x += door.inX * 0.35; e.z += door.inZ * 0.35;
-      if (!this.blockedMsg) { this.toast('La porte blindée est fermée.', 1500); this.blockedMsg = true; setTimeout(() => { this.blockedMsg = false; }, 1600); }
-      return;
-    }
-    this.transit = { door, from, t: 0.22 };
-    $('fade').classList.add('on');
-    this.a.play('door', { side: 'C', vol: 0.35 });
-  }
-
   updateWalking(dt) {
     const sim = this.sim, r = this.r;
-    if (this.transit) {
-      this.transit.t -= dt;
-      if (this.transit.t <= 0) {
-        const { door, from } = this.transit;
-        this.transit = null;
-        sim.setPlayerRoom(door.to);
-        r.enterRoom(door.to, from);
-        const name = door.to === 'OFFICE' ? 'Cabine de surveillance' : ROOMS[door.to].name;
-        $('walk-room').textContent = name;
-        this.toast(name, 1200);
-        setTimeout(() => $('fade').classList.remove('on'), 60);
-      }
-      return;
-    }
     const K = this.keys;
     const has = (...ks) => ks.some((k) => K.has(k));
     let fwd = (has('z', 'w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0) - this.stick.y;
@@ -310,8 +280,24 @@ export class Game {
     const running = moving && (has('shift') || this.runToggle);
     sim.player.running = running;
     const speed = running ? 3.4 : 1.9;
-    const door = r.walk(dt, fwd, side, speed);
-    if (door) this.useDoor(door);
+    const res = r.walk(dt, fwd, side, speed, sim.office);
+    // Changement de salle : le bâtiment est continu, on passe simplement la porte.
+    if (res.room && res.room !== sim.player.room) {
+      sim.setPlayerRoom(res.room);
+      r.setExploreRoom(res.room);
+      const name = res.room === 'OFFICE' ? 'Cabine de surveillance' : ROOMS[res.room].name;
+      $('walk-room').textContent = name;
+      this.toast(name, 1100);
+    }
+    // Porte blindée fermée devant soi
+    if (res.blocked && moving && !this.blockedMsg) {
+      const d = nearArmoredDoor(r.explore.x, r.explore.z);
+      if (d && (d === 'W' ? sim.office.doorW : sim.office.doorE)) {
+        this.toast('La porte blindée est fermée.', 1500);
+        this.blockedMsg = true;
+        setTimeout(() => { this.blockedMsg = false; }, 1600);
+      }
+    }
     if (moving) {
       this.stepAcc += Math.min(1, mag) * speed * dt;
       if (this.stepAcc > (running ? 1.0 : 0.75)) { this.stepAcc = 0; this.a.play('step', { side: 'C', vol: running ? 0.6 : 0.3 }); }

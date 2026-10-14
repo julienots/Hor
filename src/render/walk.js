@@ -2,44 +2,99 @@ import * as THREE from 'three';
 import { mesh, glowMat } from '../models/kit.js';
 import { M } from './props.js';
 import { ROOMS } from '../sim/map.js';
+import { ROOM_POS, DIMS, CONNECTIONS, DOOR_W, DOOR_H, wallPos, isXWall } from './layout.js';
 
 // ---------------------------------------------------------------------------
-// Exploration : zones de marche, obstacles et portes entre les salles.
-// Les salles restent séparées ; franchir une porte fait passer (fondu au noir)
-// dans la salle reliée, devant la porte correspondante.
+// Exploration dans un bâtiment continu : zones praticables (salles, portes,
+// passages), obstacles et salle courante, en coordonnées monde.
 // ---------------------------------------------------------------------------
 
-// Dimensions intérieures (x de -w/2 à w/2, z de -d/2 à d/2).
-const DIMS = {
-  STAGE: [10, 9], PARTY: [12, 8], LOBBY: [9, 7], KITCHEN: [8, 6], WORKSHOP: [8, 6],
-  HALL_W: [2.4, 14], HALL_E: [2.4, 14], GENERATOR: [9, 7], BACKSTAGE: [7, 6],
-};
-
-// Portes : [salle, mur, position le long du mur, destination]
-const DOORS = [
-  ['HALL_W', 'front', 0, 'OFFICE'], ['HALL_W', 'back', 0, 'PARTY'], ['HALL_W', 'right', 3, 'WORKSHOP'],
-  ['HALL_E', 'front', 0, 'OFFICE'], ['HALL_E', 'back', 0, 'LOBBY'], ['HALL_E', 'left', -1, 'KITCHEN'], ['HALL_E', 'right', -4.5, 'GENERATOR'],
-  ['PARTY', 'left', -2, 'HALL_W'], ['PARTY', 'back', 4.6, 'STAGE'], ['PARTY', 'right', 2.4, 'LOBBY'], ['PARTY', 'right', -1.6, 'KITCHEN'],
-  ['STAGE', 'front', -2, 'PARTY'], ['STAGE', 'right', 0.2, 'BACKSTAGE'],
-  ['BACKSTAGE', 'left', 1.6, 'STAGE'],
-  ['LOBBY', 'left', -0.6, 'PARTY'], ['LOBBY', 'right', 2.3, 'HALL_E'],
-  ['KITCHEN', 'front', -2, 'PARTY'], ['KITCHEN', 'right', 1.8, 'HALL_E'],
-  ['WORKSHOP', 'left', -0.2, 'HALL_W'],
-  ['GENERATOR', 'left', 1.6, 'HALL_E'],
-];
-
-// Obstacles (boîtes au sol, en coordonnées locales : x0, z0, x1, z1).
+// Obstacles au sol, en coordonnées locales de chaque salle (x0, z0, x1, z1).
 const OBSTACLES = {
   OFFICE: [[-1.3, -2.3, 1.3, -1.2]],
   STAGE: [[-4.1, -4.5, 4.1, -1.4], [-3.4, 0.7, -1.6, 1.7], [1.3, 1.1, 3.1, 2.1]],
   PARTY: [[-3.9, -3.0, -0.1, -1.8], [-3.5, -0.9, 0.3, 0.3], [-3.1, 1.2, 0.7, 2.4]],
   LOBBY: [[-0.05, -2.3, 3.05, -1.3], [0.2, -3.5, 2.8, -2.9], [-3.5, 0.5, -2.9, 2.5]],
-  KITCHEN: [[-3.8, -3.0, 2.3, -2.2], [2.2, -3.0, 3.6, -2.0], [-1.3, -0.25, 1.3, 0.85], [-4, 0, -3.0, 1.1]],
+  KITCHEN: [[-2.3, -3.0, 2.3, -2.2], [2.2, -3.0, 3.6, -2.0], [-1.3, -0.25, 1.3, 0.85], [-4, 0, -3.0, 1.1]],
   WORKSHOP: [[-1.2, -2.8, 2.2, -1.6], [-3.4, 1.4, -2.0, 2.3]],
   GENERATOR: [[-2.0, -2.7, 2.4, -1.3], [-4.3, -3.5, -0.6, -3.0]],
   BACKSTAGE: [[-3.1, -1.8, -0.5, -1.4], [-3.1, 0.2, -0.5, 0.6], [0.5, -3.0, 2.3, -2.4], [-3.2, -3.0, -1.2, -2.5], [2.8, -1.6, 3.5, -0.8]],
   HALL_W: [], HALL_E: [],
 };
+
+const R = 0.28; // rayon du joueur
+
+// Zones praticables : { x0, x1, z0, z1, room (ou null pour une porte), block ('W'/'E' : porte blindée) }
+const ZONES = [];
+const ROOM_RECTS = [];
+const OBST = [];
+
+function buildZones() {
+  if (ZONES.length) return;
+  for (const [room, [w, d]] of Object.entries(DIMS)) {
+    const [cx, cz] = ROOM_POS[room];
+    ROOM_RECTS.push({ room, x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 });
+    ZONES.push({ room, x0: cx - w / 2 + R, x1: cx + w / 2 - R, z0: cz - d / 2 + R, z1: cz + d / 2 - R });
+  }
+  // Cabine et ses deux couloirs d'accès (font partie de la cabine)
+  ROOM_RECTS.push({ room: 'OFFICE', x0: -7, x1: 7, z0: -2.6, z1: 1.8 });
+  ZONES.push({ room: 'OFFICE', x0: -2.6 + R, x1: 2.6 - R, z0: -2.6 + R, z1: 1.8 - R });
+  ZONES.push({ room: 'OFFICE', x0: -7, x1: -2.5, z0: -1.1 + R, z1: 0.7 - R });
+  ZONES.push({ room: 'OFFICE', x0: 2.5, x1: 7, z0: -1.1 + R, z1: 0.7 - R });
+  // Portes blindées de la cabine (bloquées quand elles sont fermées)
+  ZONES.push({ room: null, block: 'W', x0: -3.0, x1: -2.2, z0: -0.9 + R, z1: 0.5 - R });
+  ZONES.push({ room: null, block: 'E', x0: 2.2, x1: 3.0, z0: -0.9 + R, z1: 0.5 - R });
+  // Ouvertures entre salles (et passage s'il y a un écart entre les murs)
+  for (const [a, wa, b, wb, at] of CONNECTIONS) {
+    const pa = wallPos(a, wa), pb = wallPos(b, wb);
+    const lo = Math.min(pa, pb) - 0.75, hi = Math.max(pa, pb) + 0.75;
+    const half = DOOR_W / 2 - R;
+    if (isXWall(wa)) ZONES.push({ room: null, x0: lo, x1: hi, z0: at - half, z1: at + half });
+    else ZONES.push({ room: null, x0: at - half, x1: at + half, z0: lo, z1: hi });
+  }
+  for (const [room, list] of Object.entries(OBSTACLES)) {
+    const [cx, cz] = ROOM_POS[room];
+    for (const [ax, az, bx, bz] of list) OBST.push([cx + ax - R, cz + az - R, cx + bx + R, cz + bz + R]);
+  }
+}
+
+const inside = (z, x, y) => x >= z.x0 && x <= z.x1 && y >= z.z0 && y <= z.z1;
+
+/** Position valide ? `office` donne l'état des portes blindées. */
+export function valid(x, z, office) {
+  let ok = false;
+  for (const zn of ZONES) {
+    if (!inside(zn, x, z)) continue;
+    if (zn.block && (zn.block === 'W' ? office?.doorW : office?.doorE)) continue;
+    ok = true;
+    break;
+  }
+  if (!ok) return false;
+  for (const [ax, az, bx, bz] of OBST) if (x > ax && x < bx && z > az && z < bz) return false;
+  return true;
+}
+
+/** Déplacement avec glissement le long des murs. Renvoie { x, z, blocked }. */
+export function moveIn(x, z, dx, dz, office) {
+  if (valid(x + dx, z + dz, office)) return { x: x + dx, z: z + dz, blocked: false };
+  if (valid(x + dx, z, office)) return { x: x + dx, z, blocked: true };
+  if (valid(x, z + dz, office)) return { x, z: z + dz, blocked: true };
+  return { x, z, blocked: true };
+}
+
+/** Salle contenant ce point (null dans l'épaisseur d'une porte). */
+export function roomAt(x, z) {
+  for (const r of ROOM_RECTS) if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) return r.room;
+  return null;
+}
+
+/** Porte blindée devant laquelle se trouve le joueur (pour afficher « fermée »). */
+export function nearArmoredDoor(x, z) {
+  if (z < -0.95 || z > 0.55) return null;
+  if (Math.abs(x + 2.6) < 0.6) return 'W';
+  if (Math.abs(x - 2.6) < 0.6) return 'E';
+  return null;
+}
 
 function signTexture(text) {
   const c = document.createElement('canvas');
@@ -54,101 +109,57 @@ function signTexture(text) {
   return t;
 }
 
-function wallFrame(wall, along, w, d) {
-  // position (x, z), rotation pour faire face à la salle, direction vers l'intérieur
-  switch (wall) {
-    case 'back': return { x: along, z: -d / 2, ry: 0, inX: 0, inZ: 1 };
-    case 'front': return { x: along, z: d / 2, ry: Math.PI, inX: 0, inZ: -1 };
-    case 'left': return { x: -w / 2, z: along, ry: Math.PI / 2, inX: 1, inZ: 0 };
-    default: return { x: w / 2, z: along, ry: -Math.PI / 2, inX: -1, inZ: 0 };
-  }
-}
+const roomName = (r) => (r === 'OFFICE' ? 'Cabine de surveillance' : ROOMS[r].name);
 
-// Orientation (lacet) de la caméra pour regarder dans la direction (dx, dz).
-export const yawFor = (dx, dz) => Math.atan2(-dx, -dz);
-
-/** Ajoute à chaque vue : zone de marche, obstacles, portes (avec leur décor). */
-export function addWalkData(views) {
-  const doorMat = M.wood;
+/**
+ * Ajoute le décor des ouvertures (encadrements, panneau indiquant la salle voisine,
+ * veilleuse) et les passages entre murs écartés. Renvoie le groupe des passages.
+ */
+export function addWalkData(views, scene) {
+  buildZones();
   const lamp = glowMat('#ff3a2a', 1.6);
-  for (const [room, [w, d]] of Object.entries(DIMS)) {
+  const passages = new THREE.Group();
+  passages.name = 'passages';
+  scene.add(passages);
+  const frame = (room, wall, at, to) => {
+    if (room === 'OFFICE') return;
     const v = views[room];
-    v.walk = { bounds: [-w / 2 + 0.35, w / 2 - 0.35, -d / 2 + 0.35, d / 2 - 0.35], obstacles: OBSTACLES[room], doors: [] };
-    v.spots.any = { p: [0, 0, d / 4], ry: Math.PI, clip: 'walk' };
-  }
-  for (const [room, wall, along, to] of DOORS) {
-    const v = views[room];
-    const [w, d] = DIMS[room];
-    const f = wallFrame(wall, along, w, d);
+    const [cx, cz] = ROOM_POS[room];
+    const wp = wallPos(room, wall);
     const g = new THREE.Group();
-    g.position.set(f.x + f.inX * 0.02, 0, f.z + f.inZ * 0.02);
-    g.rotation.y = f.ry;
+    const inward = { left: [1, 0], right: [-1, 0], back: [0, 1], front: [0, -1] }[wall];
+    const lx = isXWall(wall) ? wp - cx : at - cx;
+    const lz = isXWall(wall) ? at - cz : wp - cz;
+    g.position.set(lx + inward[0] * 0.03, 0, lz + inward[1] * 0.03);
+    g.rotation.y = { back: 0, front: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[wall];
     v.group.add(g);
-    // encadrement + porte + plaque + veilleuse rouge
-    g.add(mesh(new THREE.BoxGeometry(1.15, 2.2, 0.06), doorMat, { y: 1.1, z: 0.0 }));
-    for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.1, 2.35, 0.14), M.metal, { x: sx * 0.62, y: 1.17 }));
-    g.add(mesh(new THREE.BoxGeometry(1.34, 0.1, 0.14), M.metal, { y: 2.33 }));
-    g.add(mesh(new THREE.SphereGeometry(0.04, 8, 6), M.gold, { x: 0.42, y: 1.05, z: 0.06 }));
-    const sign = mesh(new THREE.PlaneGeometry(0.9, 0.22), new THREE.MeshBasicMaterial({ map: signTexture(to === 'OFFICE' ? 'Cabine de surveillance' : ROOMS[to].name) }), { y: 2.58, z: 0.04 });
+    for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.1, DOOR_H + 0.05, 0.16), M.metal, { x: sx * (DOOR_W / 2 + 0.05), y: (DOOR_H + 0.05) / 2 }));
+    g.add(mesh(new THREE.BoxGeometry(DOOR_W + 0.2, 0.1, 0.16), M.metal, { y: DOOR_H + 0.05 }));
+    const sign = mesh(new THREE.PlaneGeometry(0.9, 0.22), new THREE.MeshBasicMaterial({ map: signTexture(roomName(to)) }), { y: DOOR_H + 0.28, z: 0.05 });
     sign.castShadow = false;
     g.add(sign);
-    g.add(mesh(new THREE.SphereGeometry(0.05, 8, 6), lamp, { y: 2.85, z: 0.05 }));
-    v.walk.doors.push({ to, x: f.x, z: f.z, inX: f.inX, inZ: f.inZ, wall });
-  }
-  // Cabine : on sort par les portes blindées (ouvertes) vers les couloirs.
-  const off = views.OFFICE;
-  off.walk = {
-    bounds: [-2.35, 2.35, -2.35, 1.55],
-    obstacles: OBSTACLES.OFFICE,
-    doors: [
-      { to: 'HALL_W', x: -2.6, z: -0.2, inX: 1, inZ: 0, side: 'W', zRange: [-0.85, 0.45] },
-      { to: 'HALL_E', x: 2.6, z: -0.2, inX: -1, inZ: 0, side: 'E', zRange: [-0.85, 0.45] },
-    ],
+    g.add(mesh(new THREE.SphereGeometry(0.05, 8, 6), lamp, { y: DOOR_H + 0.55, z: 0.05 }));
   };
-  off.spots.any = { p: [0, 0, -0.5], ry: 0, clip: 'walk' };
-  // Vue « conduits » : non praticable
+  const wallMat = new THREE.MeshStandardMaterial({ color: '#2a2422', roughness: 0.95, side: THREE.DoubleSide });
+  for (const [a, wa, b, wb, at] of CONNECTIONS) {
+    frame(a, wa, at, b);
+    frame(b, wb, at, a);
+    const pa = wallPos(a, wa), pb = wallPos(b, wb);
+    const gap = Math.abs(pa - pb);
+    if (gap < 0.05) continue;
+    // court passage entre deux murs écartés
+    const mid = (pa + pb) / 2;
+    const g = new THREE.Group();
+    if (isXWall(wa)) { g.position.set(mid, 0, at); g.rotation.y = Math.PI / 2; } else g.position.set(at, 0, mid);
+    passages.add(g);
+    g.add(mesh(new THREE.PlaneGeometry(DOOR_W, gap), M.wood, { rx: -Math.PI / 2, y: 0.002 }));
+    g.add(mesh(new THREE.PlaneGeometry(DOOR_W, gap), wallMat, { rx: Math.PI / 2, y: DOOR_H }));
+    for (const sx of [-1, 1]) g.add(mesh(new THREE.PlaneGeometry(gap, DOOR_H), wallMat, { x: sx * DOOR_W / 2, y: DOOR_H / 2, ry: Math.PI / 2 }));
+  }
+  for (const room of Object.keys(DIMS)) views[room].spots.any = { p: [0, 0, DIMS[room][1] / 4], ry: Math.PI, clip: 'walk' };
+  views.OFFICE.spots.any = { p: [0, 0, -0.5], ry: 0, clip: 'walk' };
   views.VENT.spots.any = { p: [0, 0.05, -4], ry: 0, clip: 'crawl', scale: 0.85 };
+  return passages;
 }
 
-/** Point d'arrivée dans `room` quand on vient de `from`. */
-export function arrivalIn(views, room, from) {
-  const v = views[room];
-  const door = v.walk.doors.find((dd) => dd.to === from) ?? v.walk.doors[0];
-  const k = room === 'OFFICE' ? 0.7 : 0.9;
-  return { x: door.x + door.inX * k, z: door.z + door.inZ * k, yaw: yawFor(door.inX, door.inZ) };
-}
-
-/** Déplacement avec collisions (cercle de rayon r contre la zone et les boîtes). */
-export function collide(v, x, z, r = 0.3) {
-  const [x0, x1, z0, z1] = v.walk.bounds;
-  x = Math.max(x0, Math.min(x1, x));
-  z = Math.max(z0, Math.min(z1, z));
-  for (const [ax, az, bx, bz] of v.walk.obstacles) {
-    const cx = Math.max(ax, Math.min(bx, x)), cz = Math.max(az, Math.min(bz, z));
-    const dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
-    if (d2 < r * r) {
-      if (d2 > 1e-6) { const d = Math.sqrt(d2); x = cx + (dx / d) * r; z = cz + (dz / d) * r; }
-      else {
-        // centre à l'intérieur de la boîte : sortie par le côté le plus proche
-        const opts = [[ax - r, z, x - ax], [bx + r, z, bx - x], [x, az - r, z - az], [x, bz + r, bz - z]];
-        opts.sort((a, b) => a[2] - b[2]);
-        [x, z] = opts[0];
-      }
-    }
-  }
-  return [x, z];
-}
-
-/** Porte atteinte ? (le joueur est assez près du mur, dans l'encadrement) */
-export function doorAt(v, x, z) {
-  for (const d of v.walk.doors) {
-    if (d.zRange) {
-      if (z > d.zRange[0] && z < d.zRange[1] && Math.abs(x - d.x) < 0.42) return d;
-      continue;
-    }
-    const along = d.inX !== 0 ? Math.abs(z - d.z) : Math.abs(x - d.x);
-    const dist = d.inX !== 0 ? Math.abs(x - d.x) : Math.abs(z - d.z);
-    if (along < 0.5 && dist < 0.55) return d;
-  }
-  return null;
-}
+export { roomName };

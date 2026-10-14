@@ -3,7 +3,8 @@ import { buildWorld, fragmentMesh } from './world.js';
 import { createPost } from './post.js';
 import { buildCharacter } from '../models/index.js';
 import { camRoom } from '../sim/map.js';
-import { addWalkData, arrivalIn, collide, doorAt } from './walk.js';
+import { addWalkData, moveIn, roomAt } from './walk.js';
+import { WALK_LINKS } from '../sim/map.js';
 
 const ENEMIES = ['mc', 'mimi', 'roi', 'ruban', 'choeur'];
 const QUALITY = {
@@ -30,8 +31,9 @@ export class GameRenderer {
     this.scene.fog = new THREE.FogExp2('#050406', 0.05);
     this.scene.background = new THREE.Color('#000000');
     this.views = buildWorld();
-    addWalkData(this.views);
     for (const v of Object.values(this.views)) { this.scene.add(v.group); v.group.visible = false; }
+    this.passages = addWalkData(this.views, this.scene);
+    this.passages.visible = false;
     this.office = this.views.OFFICE;
     this.officeCam = this.office.cam;
     // Jeu de lumières partagé : toujours 2 projecteurs + 2 ponctuelles + ambiance.
@@ -106,9 +108,8 @@ export class GameRenderer {
   /** Active une vue : rend sa salle visible et applique son éclairage. */
   setView(id) {
     if (this.view?.id === id) return;
-    if (this.view) this.view.group.visible = false;
+    for (const v of Object.values(this.views)) v.group.visible = v.id === id;
     this.view = this.views[id];
-    this.view.group.visible = true;
     const o = this.view.group.position;
     const cfg = this.view.lights;
     for (const k of ['s0', 's1']) {
@@ -316,8 +317,7 @@ export class GameRenderer {
 
   camWorldPos() {
     if (!this.explore) return new THREE.Vector3(0, 1.32, 0.95);
-    const o = this.view.group.position;
-    return new THREE.Vector3(o.x + this.explore.x, 1.6, o.z + this.explore.z);
+    return new THREE.Vector3(this.explore.x, 1.6, this.explore.z);
   }
 
   // Place la mascotte pour que sa tête soit juste devant l'objectif (cadrage robuste).
@@ -414,7 +414,8 @@ export class GameRenderer {
     this.post.uniforms.uCam.value = 0;
     this.post.uniforms.uLooped.value = 0;
     this.post.uniforms.uNight.value = 0;
-    this.setView(room);
+    this.view = null;
+    this.setExploreRoom(room);
   }
 
   stopExplore() {
@@ -422,27 +423,27 @@ export class GameRenderer {
     this.chasing = new Set();
     this.L.flash.intensity = 0;
     this.fragment.visible = false;
+    this.passages.visible = false;
   }
 
-  /** Passe dans la salle reliée par une porte. */
-  enterRoom(room, from) {
-    const a = arrivalIn(this.views, room, from);
-    Object.assign(this.explore, { room, x: a.x, z: a.z, yaw: a.yaw, pitch: 0 });
-    for (const k of ENEMIES) this.charRoom[k] = null;
-    this.chasing = new Set();
+  /** Salle courante : son éclairage s'applique ; les salles voisines restent visibles par les portes. */
+  setExploreRoom(room) {
+    this.explore.room = room;
     this.setView(room);
+    for (const n of WALK_LINKS[room] ?? []) this.views[n].group.visible = true;
+    this.passages.visible = true;
   }
 
-  /** Déplacement du joueur (vitesse en m/s dans le repère de la caméra). Renvoie une porte atteinte. */
-  walk(dt, fwd, side, speed) {
+  /** Déplacement continu dans le bâtiment. Renvoie la salle atteinte et si un mur bloque. */
+  walk(dt, fwd, side, speed, office) {
     const e = this.explore;
-    const v = this.views[e.room];
     const sin = Math.sin(e.yaw), cos = Math.cos(e.yaw);
     const dx = (-sin * fwd + cos * side) * speed * dt;
     const dz = (-cos * fwd - sin * side) * speed * dt;
-    [e.x, e.z] = collide(v, e.x + dx, e.z + dz);
+    const r = moveIn(e.x, e.z, dx, dz, office);
+    e.x = r.x; e.z = r.z;
     e.moving = Math.hypot(fwd, side) * speed;
-    return doorAt(v, e.x, e.z);
+    return { room: roomAt(e.x, e.z), blocked: r.blocked };
   }
 
   look(dyaw, dpitch) {
@@ -454,11 +455,10 @@ export class GameRenderer {
 
   updateExploreCam(dt, sim) {
     const e = this.explore;
-    const o = this.view.group.position;
     e.bob += dt * e.moving * 3.2;
     const c = this.exploreCam;
     if (!this.jumpscare) {
-      c.position.set(o.x + e.x, 1.6 + Math.sin(e.bob) * 0.035 * Math.min(1, e.moving), o.z + e.z);
+      c.position.set(e.x, 1.6 + Math.sin(e.bob) * 0.035 * Math.min(1, e.moving), e.z);
       c.rotation.set(e.pitch, e.yaw, Math.sin(e.bob * 0.5) * 0.008, 'YXZ');
     }
     // lampe torche accrochée à la caméra
@@ -484,6 +484,7 @@ export class GameRenderer {
     sim.player.looking = looking;
     // Les mascottes qui t'ont repéré se tournent vers toi et avancent
     const p = sim.player;
+    const pw = new THREE.Vector3();
     for (const k of ENEMIES) {
       const en = sim.enemies[k];
       const ch = this.chars[k];
@@ -491,7 +492,8 @@ export class GameRenderer {
       if (!chase) { if (this.chasing.has(k)) { this.chasing.delete(k); this.charRoom[k] = null; } continue; }
       this.chasing.add(k);
       const r = ch.root;
-      const dx = e.x - r.position.x, dz = e.z - r.position.z;
+      r.parent.getWorldPosition(pw);
+      const dx = e.x - pw.x - r.position.x, dz = e.z - pw.z - r.position.z;
       const d = Math.hypot(dx, dz);
       r.rotation.y = Math.atan2(dx, dz);
       const speed = (en.state === 'hunt' ? 1.25 : 0.7) * (k === 'roi' ? 0.7 : 1);
@@ -504,12 +506,13 @@ export class GameRenderer {
     }
     // Fragment de partition posé dans la salle
     const frag = sim.fragments.find((fr) => sim.hour >= fr.from && sim.hour < fr.to && camRoom(fr.cam) === e.room);
-    const v = this.view;
+    const v = this.views[e.room];
     if (frag && v.fragment) {
+      const o = v.group.position;
       this.fragment.visible = true;
       this.fragment.position.set(o.x + v.fragment[0], v.fragment[1] + 0.15 + Math.sin(this.time * 2) * 0.03, o.z + v.fragment[2]);
       this.fragment.userData.id = frag.id;
-      this.fragment.userData.near = Math.hypot(v.fragment[0] - e.x, v.fragment[2] - e.z) < 1.4;
+      this.fragment.userData.near = Math.hypot(o.x + v.fragment[0] - e.x, o.z + v.fragment[2] - e.z) < 1.4;
     } else { this.fragment.visible = false; this.fragment.userData.near = false; }
   }
 

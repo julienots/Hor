@@ -10,7 +10,7 @@ On peut aussi **quitter la cabine et explorer le bâtiment à pied**, lampe torc
 
 ## Installer l'APK Android
 
-1. Télécharge [`releases/Nightshift-0.2.0.apk`](releases/Nightshift-0.2.0.apk) sur ton téléphone.
+1. Télécharge [`releases/Nightshift-0.3.0.apk`](releases/Nightshift-0.3.0.apk) sur ton téléphone.
 2. Ouvre-le ; Android demande d'autoriser l'installation depuis cette source (navigateur ou
    gestionnaire de fichiers) : accepte, puis « Installer ».
 3. Lance « Nightshift ». Le jeu fonctionne hors ligne et s'affiche en paysage.
@@ -85,7 +85,20 @@ Le rapport des tests réellement exécutés est dans [`docs/RAPPORT_TESTS.md`](d
 | Regarder | souris (clic pour capturer le curseur) | glisser à droite |
 | Courir (bruyant) | **Maj** | « Courir » |
 | Lampe torche | **F** | « Lampe » |
-| Changer de salle | marcher dans une porte (veilleuse rouge au-dessus) | idem |
+| Changer de salle | passer une ouverture (panneau + veilleuse rouge au-dessus) | idem |
+
+Le bâtiment est **continu** : toutes les salles se suivent sur un vrai plan, sans chargement ni
+écran noir entre elles, et on voit la salle voisine par les ouvertures :
+
+```
+            Scène ── Loge des costumes
+              │
+ Couloir O ── Salle de fête ── Réception ── Couloir E
+   │  │            │                         │  │
+Atelier            └──────── Cuisine ────────┘  Salle des machines
+   │                                            │
+   └──────── couloir ── CABINE ── couloir ──────┘
+```
 
 Règles à pied : rester dans la salle d'une mascotte remplit la jauge rouge (bord de l'écran,
 battements de cœur) ; la lampe braquée **fige le Maître de Cérémonie** et **fait fuir Madame Ruban** ;

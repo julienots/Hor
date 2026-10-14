@@ -5,6 +5,8 @@ import { Game } from './game.js';
 import { NIGHTS } from './sim/nights.js';
 import { LORE, FRAGMENTS } from './sim/story.js';
 import './style.css';
+import * as layout from './render/layout.js';
+import { roomAt } from './render/walk.js';
 
 const $ = (id) => document.getElementById(id);
 const save = loadSave();
@@ -222,4 +224,4 @@ function onAppPause() {
   if (mode === 'game' && game && !game.ended) game.pause(true);
   else if (audio.ctx) audio.ctx.suspend();
 }
-window.__nightshift = { get game() { return game; }, renderer, audio, save, startNight, goMenu, onBack, onAppPause };
+window.__nightshift = { get game() { return game; }, renderer, audio, save, startNight, goMenu, onBack, onAppPause, layout, roomAt };

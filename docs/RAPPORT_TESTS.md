@@ -50,7 +50,12 @@ débloquée), paramètres, **aucune erreur JavaScript**.
 Captures vérifiées visuellement : menu, cabine, lumières, portes, 10 caméras, 5 jumpscares,
 Mimi dans le conduit, écrans de fin, mise en page téléphone portrait (412×860) et paysage (860×412).
 
-### 3 bis. Exploration — `node tests/e2e/explore.mjs` : **10/10 réussies**
+### 3 bis. Exploration — `node tests/e2e/explore.mjs` : **13/13 réussies**
+
+Bâtiment continu (v0.3.0) : les **22 traversées** (11 liaisons, dans les deux sens) se font à pied
+sans transition ; les murs sont infranchissables hors des ouvertures ; passage continu salle de
+fête → scène vérifié au clavier.
+
 
 Se lever, franchir la porte ouest, lampe, couloir → salle de fête, collision avec une table,
 regarder le Maître sous la lampe (pas de détection), jauge qui monte lampe éteinte, capture, visite
@@ -59,7 +64,7 @@ de toutes les salles (captures vérifiées), aucune erreur JavaScript.
 ### 3 ter. APK Android
 
 - `android/build-apk.sh` : réussi. `apksigner verify` : signature valide. `aapt dump badging` :
-  paquet `com.superessence.nightshift`, version 0.2.0, Android 7.0+ (API 24), cible API 34.
+  paquet `com.superessence.nightshift`, version 0.3.0, Android 7.0+ (API 24), cible API 34.
 - Le fichier HTML embarqué dans l'APK a passé les deux tests navigateur (15/15 et 10/10) chargé en
   `file://`, comme dans la WebView.
 - **Non testé : installation et lancement sur un vrai téléphone ou un émulateur** (pas d'émulateur

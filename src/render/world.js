@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mesh, tube, roundedBox, dent, lathe, glowMat, mat, wornPaint } from '../models/kit.js';
 import { wallpaper, concrete, floorTex, banner } from './envtex.js';
+import { ROOM_POS, roomOpenings, DOOR_W, DOOR_H } from './layout.js';
 import { M, initPropMaterials, table, chair, partyHat, balloon, cake, crate, shelf, posterMesh, hangingLamp, pipeRun, generator } from './props.js';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,35 @@ function surface(map, rough = 0.9, color = 0xffffff) {
 }
 
 /** Coquille de salle : sol, plafond et murs tournés vers l'intérieur. */
+// Ouvertures (portes) de la salle en cours de construction, fournies par le plan.
+let currentOpenings = { back: [], front: [], left: [], right: [] };
+
+/** Mur percé d'ouvertures : morceaux pleins + linteaux au-dessus des portes. */
+function wallWithOpenings(g, wall, len, h, x, z, ry, openings) {
+  const grp = new THREE.Group();
+  grp.position.set(x, 0, z);
+  grp.rotation.y = ry;
+  g.add(grp);
+  // coordonnée le long du mur -> coordonnée locale du plan (selon l'orientation)
+  const sign = { back: 1, front: -1, left: -1, right: 1 }[wall];
+  const holes = openings.map((u) => u * sign).sort((a, b) => a - b);
+  const piece = (u0, u1, y0, y1) => {
+    if (u1 - u0 < 0.01 || y1 - y0 < 0.01) return;
+    const mat = g.userData.wallMat.clone();
+    if (mat.map) { mat.map = mat.map.clone(); mat.map.repeat.set((u1 - u0) / 3, (y1 - y0) / h); mat.map.offset.set(u0 / 3, y0 / h); mat.map.needsUpdate = true; }
+    const pm = mesh(new THREE.PlaneGeometry(u1 - u0, y1 - y0), mat, { x: (u0 + u1) / 2, y: (y0 + y1) / 2 });
+    pm.castShadow = false;
+    grp.add(pm);
+  };
+  let u = -len / 2;
+  for (const c of holes) {
+    piece(u, c - DOOR_W / 2, 0, h);
+    piece(c - DOOR_W / 2, c + DOOR_W / 2, DOOR_H, h);
+    u = c + DOOR_W / 2;
+  }
+  piece(u, len / 2, 0, h);
+}
+
 function shell(g, { w, d, h, wall, floor, ceil = '#141012', skip = [] }) {
   const fl = mesh(new THREE.PlaneGeometry(w, d), floor, { rx: -Math.PI / 2 });
   fl.castShadow = false;
@@ -28,8 +58,10 @@ function shell(g, { w, d, h, wall, floor, ceil = '#141012', skip = [] }) {
     ['left', d, [-w / 2, h / 2, 0], Math.PI / 2],
     ['right', d, [w / 2, h / 2, 0], -Math.PI / 2],
   ];
+  g.userData.wallMat = wall;
   for (const [name, len, p, ry] of walls) {
     if (skip.includes(name)) continue;
+    if (currentOpenings[name]?.length) { wallWithOpenings(g, name, len, h, p[0], p[2], ry, currentOpenings[name]); continue; }
     const m = wall.clone();
     if (m.map) { m.map = m.map.clone(); m.map.repeat.set(len / 3, 1); m.map.needsUpdate = true; }
     const wm = mesh(new THREE.PlaneGeometry(len, h), m, { x: p[0], y: p[1], z: p[2], ry });
@@ -139,7 +171,7 @@ function buildOffice() {
     hall.add(mesh(new THREE.PlaneGeometry(hd, hw), ceilMat, { y: 2.6, rx: Math.PI / 2 }));
     hall.add(mesh(new THREE.PlaneGeometry(hd, 2.6), hm, { y: 1.3, z: -hw / 2 }));
     hall.add(mesh(new THREE.PlaneGeometry(hd, 2.6), hm, { y: 1.3, z: hw / 2, ry: Math.PI }));
-    hall.add(mesh(new THREE.PlaneGeometry(hw, 2.6), new THREE.MeshStandardMaterial({ color: '#050404' }), { x: sx * hd / 2, y: 1.3, ry: -sx * Math.PI / 2 }));
+    // l'extrémité du couloir s'ouvre directement sur le grand couloir (voir layout.js)
     const p = posterMesh(sx < 0 ? 'parade' : 'ruban', 30 + sx, 0.55);
     p.position.set(sx * 0.4, 1.5, -hw / 2 + 0.01);
     hall.add(p);
@@ -327,7 +359,7 @@ function buildParty(o) {
     for (let k = 0; k < 4; k++) { const c = chair(r === 1 && k === 2); c.position.set(t.position.x - 1.3 + k * 0.85, 0, t.position.z + 0.75); c.rotation.y = Math.PI; g.add(c); }
     const ck = cake(); ck.position.set(t.position.x + 0.2, 0.79, t.position.z); g.add(ck);
   }
-  for (let i = 0; i < 7; i++) { const b = balloon(i, i % 3 === 0); b.position.set(-5 + i * 1.5, i % 3 === 0 ? 0.25 : 3.3, -3.6 + (i % 2) * 0.4); g.add(b); }
+  for (let i = 0; i < 6; i++) { const b = balloon(i, i % 3 === 0); b.position.set(-5 + i * 1.5, i % 3 === 0 ? 0.25 : 3.3, -3.6 + (i % 2) * 0.4); g.add(b); }
   const bn = mesh(new THREE.PlaneGeometry(6, 0.6), new THREE.MeshStandardMaterial({ map: banner('BON ANNIVERSAIRE !', '#2a4a8a'), roughness: 0.9 }), { y: 3.2, z: -3.95 });
   g.add(bn);
   // guirlande de fanions
@@ -389,7 +421,7 @@ function buildKitchen(o) {
   const v = makeView('KITCHEN', o, { camPos: [3.4, 3.0, 2.6], camLook: [-0.5, 0.9, -1.2] });
   const g = v.group;
   shell(g, { w: 8, d: 6, h: 3.4, wall: surface(concrete('#8a8a80', 61, [3, 1], true)), floor: surface(floorTex('tile', 62, [5, 4])) });
-  for (let i = 0; i < 4; i++) g.add(mesh(roundedBox(1.4, 0.9, 0.7, 0.03), M.steel, { x: -3 + i * 1.5, y: 0.45, z: -2.6 }));
+  for (let i = 0; i < 3; i++) g.add(mesh(roundedBox(1.4, 0.9, 0.7, 0.03), M.steel, { x: -1.5 + i * 1.5, y: 0.45, z: -2.6 }));
   g.add(mesh(roundedBox(1.2, 1, 0.8, 0.04), M.dark, { x: 2.9, y: 0.5, z: -2.5 }));
   for (let i = 0; i < 4; i++) g.add(mesh(new THREE.TorusGeometry(0.12, 0.02, 6, 16), M.metal, { x: 2.6 + (i % 2) * 0.5, y: 1.02, z: -2.6 + Math.floor(i / 2) * 0.35, rx: Math.PI / 2 }));
   g.add(mesh(roundedBox(1, 2.2, 0.8, 0.05), M.steel, { x: -3.5, y: 1.1, z: 0.5, ry: Math.PI / 2 }));
@@ -405,7 +437,7 @@ function buildKitchen(o) {
   v.anomalies.push((on) => { rack.rotation.y = on ? 0.25 : 0; });
   v.spots.roi = { p: [0.2, 0, -1.4], ry: 0.4, clip: 'idle' };
   v.spots.choeur = { p: [2.6, 0, 1.0], ry: -1.2, clip: 'idle' };
-  v.fragment = [-3.0, 0.92, -2.5];
+  v.fragment = [0, 0.92, -2.55];
   v.lights = L({
     s0: { p: [0, 3.3, 0.5], t: [0, 0, -1], c: '#e0ffe8', i: 20, a: 0.9, d: 9 },
     s1: { p: [2.6, 3.3, 1.5], t: [2.6, 0, 1], c: '#ffe0b0', i: 6, a: 0.6, d: 8 },
@@ -595,6 +627,14 @@ export function buildWorld() {
   const views = {};
   views.OFFICE = buildOffice();
   const rooms = [buildStage, buildParty, buildLobby, buildKitchen, buildWorkshop, (o) => buildHall(o, 'W'), (o) => buildHall(o, 'E'), buildVent, buildGenerator, buildBackstage];
-  rooms.forEach((b, i) => { const v = b([60 + (i % 5) * 40, 0, Math.floor(i / 5) * 40 - 20]); views[v.id] = v; });
+  const ids = ['STAGE', 'PARTY', 'LOBBY', 'KITCHEN', 'WORKSHOP', 'HALL_W', 'HALL_E', 'VENT', 'GENERATOR', 'BACKSTAGE'];
+  rooms.forEach((b, i) => {
+    const id = ids[i];
+    currentOpenings = roomOpenings(id);
+    const [x, z] = ROOM_POS[id];
+    const v = b([x, 0, z]);
+    views[v.id] = v;
+  });
+  currentOpenings = { back: [], front: [], left: [], right: [] };
   return views;
 }
