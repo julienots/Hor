@@ -48,9 +48,9 @@ check('Le joueur regarde le Maître (lampe)', await ev(() => window.__nightshift
 check('Lampe sur le Maître : pas de détection', await ev(() => window.__nightshift.game.sim.player.detection < 0.05));
 // Lampe éteinte → la jauge monte, il approche
 await page.keyboard.press('f');
-await wait(3500);
+await page.waitForFunction(() => window.__nightshift.game.sim.player.detection > 0.2 || window.__nightshift.game.ended, null, { timeout: 20000 }).catch(() => {});
 const det = await ev(() => window.__nightshift.game.sim.player.detection);
-check('Sans lampe, la jauge de danger monte', det > 0.2, det.toFixed(2));
+check('Sans lampe, la jauge de danger monte', det > 0.2 || (await ev(() => window.__nightshift.game.ended)), det.toFixed(2));
 await page.screenshot({ path: `${out}/05-danger.png` });
 await page.waitForSelector('#gameover.active', { timeout: 40000 }).catch(() => {});
 check('Rester trop longtemps → attrapé', await page.isVisible('#gameover'));

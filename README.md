@@ -5,7 +5,27 @@ Jeu d'horreur 3D cartoon original du studio **SUPERESSENCE**. Tu fais la mainten
 mécaniques ne suivent plus leur programmation. Il faut surveiller les caméras, gérer l'énergie,
 les portes, les lumières, le volet du conduit, le leurre sonore et la décharge électrique.
 
-Le jeu tourne dans un navigateur, sur PC (clavier et souris) et sur Android (tactile).
+Le jeu tourne sur Android (APK), dans un navigateur sur PC (clavier et souris) et sur mobile (tactile).
+On peut aussi **quitter la cabine et explorer le bâtiment à pied**, lampe torche à la main.
+
+## Installer l'APK Android
+
+1. Télécharge [`releases/Nightshift-0.2.0.apk`](releases/Nightshift-0.2.0.apk) sur ton téléphone.
+2. Ouvre-le ; Android demande d'autoriser l'installation depuis cette source (navigateur ou
+   gestionnaire de fichiers) : accepte, puis « Installer ».
+3. Lance « Nightshift ». Le jeu fonctionne hors ligne et s'affiche en paysage.
+
+L'APK est signé avec une clé personnelle (`android/nightshift.keystore`), pas par le Play Store :
+Play Protect peut afficher un avertissement, c'est normal pour une installation manuelle.
+
+Pour reconstruire l'APK (JDK 17+ et Android SDK avec `platforms;android-34` et `build-tools;34.0.0`) :
+
+```bash
+ANDROID_HOME=/chemin/vers/android-sdk ./android/build-apk.sh   # → android/build/Nightshift.apk
+```
+
+Le script n'utilise pas Gradle : il compile le jeu en un fichier HTML autonome, l'embarque dans une
+WebView plein écran (`android/src/.../MainActivity.java`), puis assemble et signe l'APK.
 
 ## Lancer le jeu
 
@@ -55,6 +75,23 @@ Le rapport des tests réellement exécutés est dans [`docs/RAPPORT_TESTS.md`](d
 | Réinitialiser la caméra | **R** | bouton |
 | Pause | **Échap** ou **P** | bouton ❚❚ |
 | Diagnostic de l'IA | **F3** | Paramètres → Diagnostic |
+
+### À pied (exploration)
+
+| Action | Clavier / souris | Tactile |
+|---|---|---|
+| Se lever / s'asseoir (dans la cabine) | **G** | « Se lever » / « S'asseoir » |
+| Marcher | **Z Q S D** ou **W A S D**, flèches | joystick à gauche |
+| Regarder | souris (clic pour capturer le curseur) | glisser à droite |
+| Courir (bruyant) | **Maj** | « Courir » |
+| Lampe torche | **F** | « Lampe » |
+| Changer de salle | marcher dans une porte (veilleuse rouge au-dessus) | idem |
+
+Règles à pied : rester dans la salle d'une mascotte remplit la jauge rouge (bord de l'écran,
+battements de cœur) ; la lampe braquée **fige le Maître de Cérémonie** et **fait fuir Madame Ruban** ;
+courir fait du bruit (Mimi). Si une mascotte atteint la cabine vide, elle **te traque** de salle en
+salle : retourne dans la cabine pour qu'elle abandonne. Les portes blindées fermées bloquent le passage.
+Les fragments dorés peuvent aussi se ramasser à pied.
 
 ## Les cinq mascottes (chapitre 1)
 

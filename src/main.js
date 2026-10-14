@@ -207,4 +207,19 @@ bindSettings();
 renderer.showcase('mc', 'present');
 requestAnimationFrame(frame);
 window.__ready = true;
-window.__nightshift = { get game() { return game; }, renderer, audio, save, startNight, goMenu };
+// Intégration Android (bouton retour, mise en arrière-plan)
+function onBack() {
+  if (mode === 'game' && game) {
+    if (game.ended) { goMenu(); return 'ok'; }
+    if ($('settings').classList.contains('active')) { back(); return 'ok'; }
+    game.pause(!game.paused);
+    return 'ok';
+  }
+  if (screenStack.length) { if (mode === 'files') { mode = 'menu'; renderer.showcase(MASCOTS[showcaseIdx], 'idle'); } back(); return 'ok'; }
+  return 'exit';
+}
+function onAppPause() {
+  if (mode === 'game' && game && !game.ended) game.pause(true);
+  else if (audio.ctx) audio.ctx.suspend();
+}
+window.__nightshift = { get game() { return game; }, renderer, audio, save, startNight, goMenu, onBack, onAppPause };

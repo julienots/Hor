@@ -1,11 +1,15 @@
-# Rapport de tests — 14/10/2026
+# Rapport de tests — 14/10/2026 (mis à jour : exploration + APK)
 
 Environnement : conteneur Linux, Node 22, Chromium 141 (Playwright 1.56) en **rendu logiciel
 SwiftShader, sans GPU**. Aucun appareil Android ni PC de jeu réel n'était disponible.
 
 ## Tests réellement exécutés
 
-### 1. Simulation — `npm test` (Vitest) : **16/16 réussis**
+### 1. Simulation — `npm test` (Vitest) : **21/21 réussis**
+
+Ajouts exploration : jauge de détection qui tue, jauge qui redescend en quittant la salle,
+lampe qui fige le Maître et fait fuir Ruban, traque quand la cabine est vide (et fin de traque au
+retour), commandes de la cabine inaccessibles dehors.
 
 | Test | Résultat |
 |---|---|
@@ -45,6 +49,21 @@ débloquée), paramètres, **aucune erreur JavaScript**.
 
 Captures vérifiées visuellement : menu, cabine, lumières, portes, 10 caméras, 5 jumpscares,
 Mimi dans le conduit, écrans de fin, mise en page téléphone portrait (412×860) et paysage (860×412).
+
+### 3 bis. Exploration — `node tests/e2e/explore.mjs` : **10/10 réussies**
+
+Se lever, franchir la porte ouest, lampe, couloir → salle de fête, collision avec une table,
+regarder le Maître sous la lampe (pas de détection), jauge qui monte lampe éteinte, capture, visite
+de toutes les salles (captures vérifiées), aucune erreur JavaScript.
+
+### 3 ter. APK Android
+
+- `android/build-apk.sh` : réussi. `apksigner verify` : signature valide. `aapt dump badging` :
+  paquet `com.superessence.nightshift`, version 0.2.0, Android 7.0+ (API 24), cible API 34.
+- Le fichier HTML embarqué dans l'APK a passé les deux tests navigateur (15/15 et 10/10) chargé en
+  `file://`, comme dans la WebView.
+- **Non testé : installation et lancement sur un vrai téléphone ou un émulateur** (pas d'émulateur
+  Android disponible dans l'environnement).
 
 ### 4. Compilation
 
