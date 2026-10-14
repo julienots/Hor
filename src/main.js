@@ -113,8 +113,19 @@ function bindSettings() {
     });
   }
   $('fps').classList.toggle('show', settings.showFps);
-  $('btn-reset').onclick = () => {
-    if (confirm('Effacer toute la progression (nuits, fragments) ? Les paramètres sont conservés.')) { resetProgress(save); goMenu(); }
+  // Confirmation intégrée à la page (les boîtes de dialogue du navigateur peuvent être bloquées).
+  const reset = $('btn-reset');
+  let armed = null;
+  reset.onclick = () => {
+    if (!armed) {
+      reset.textContent = 'Confirmer : tout effacer (nuits et fragments) ?';
+      armed = setTimeout(() => { armed = null; reset.textContent = 'Effacer la progression'; }, 4000);
+      return;
+    }
+    clearTimeout(armed); armed = null;
+    reset.textContent = 'Effacer la progression';
+    resetProgress(save);
+    goMenu();
   };
 }
 
